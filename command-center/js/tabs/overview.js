@@ -42,23 +42,15 @@ export function renderOverview(main, ctx) {
     "post-demo": "Past demo day",
   }[releaseInfo?.phase] || "Schedule not available";
 
-  main.innerHTML = `
-    <div class="cc-banner">
-      <div>
-        <strong>Build paused at the Overview checkpoint.</strong>
-        This is the first of nine tabs, built and reviewed on its own before the rest.
-        The other eight tabs are reachable from the nav above — each shows a plain
-        "not built yet" state, nothing is locked or hidden.
-      </div>
-      <div>Say <strong>"build the rest"</strong> to continue.</div>
-    </div>
+  const releaseHref = releaseInfo?.active ? `#/pm/release/${encodeURIComponent(releaseInfo.active.key)}` : "#/pm";
 
+  main.innerHTML = `
     <h1 class="cc-page-title">${escapeHtml(plan?.project?.name || "SupplyMind AI")} ${sampleBadge(mode)}</h1>
     <p class="cc-page-sub">${escapeHtml(plan?.project?.descriptor || "")}</p>
 
     <div class="cc-section">
       <h2>Where we are</h2>
-      <div class="cc-card">
+      <a class="cc-card clickable" href="${releaseHref}">
         <div>${phaseLabel}</div>
         <div class="cc-progress-track" style="margin-top:8px;">
           <div class="cc-progress-fill" style="width:${releaseInfo ? Math.min(Math.max(releaseInfo.pct, 0), 100) : 0}%;"></div>
@@ -66,24 +58,24 @@ export function renderOverview(main, ctx) {
         <div class="cc-stat-sub" style="margin-top:6px;">
           Build ${plan?.schedule?.build_start} → ${plan?.schedule?.build_end} · Demo day ${plan?.schedule?.demo_day} · Demo target release <strong>${escapeHtml(plan?.schedule?.demo_release_key || "—")}</strong>
         </div>
-      </div>
+      </a>
     </div>
 
     <div class="cc-section">
       <h2>Progress ${sampleBadge(mode)}</h2>
       <div class="cc-card-grid">
-        <div class="cc-card">
+        <a class="cc-card clickable" href="#/pm">
           <div class="cc-stat-label">Stories verified</div>
           <div class="cc-stat-value">${totals?.stories_verified ?? 0} <span class="cc-stat-sub">of ${totals?.stories_total ?? 0}</span></div>
-        </div>
-        <div class="cc-card">
+        </a>
+        <a class="cc-card clickable" href="#/pm/story/STORY-000">
           <div class="cc-stat-label">Criteria passed</div>
           <div class="cc-stat-value">${totals?.criteria_passed ?? 0} <span class="cc-stat-sub">of ${totals?.criteria_total ?? 0}</span></div>
-        </div>
-        <div class="cc-card">
+        </a>
+        <a class="cc-card clickable" href="#/pm">
           <div class="cc-stat-label">Points awarded</div>
           <div class="cc-stat-value">${totals?.points_awarded ?? 0}</div>
-        </div>
+        </a>
       </div>
       ${mode === "real" && (progress?.totals?.criteria_total ?? 0) <= 5 ? `
         <p class="cc-stat-sub">Only STORY-000 (this Command Center) has acceptance criteria written so far — every other story's criteria get written when that story is picked up. That's why the criteria total is low right now, not a bug.</p>
@@ -92,9 +84,9 @@ export function renderOverview(main, ctx) {
 
     <div class="cc-section">
       <h2>What's live</h2>
-      <div class="cc-card">
-        <div><span class="cc-status-dot"></span>System connectivity (PostgreSQL, Google Sheets) — not checked from here yet. <a href="#/systems">See Systems tab</a>.</div>
-      </div>
+      <a class="cc-card clickable" href="#/systems">
+        <div><span class="cc-status-dot"></span>System connectivity (PostgreSQL, Google Sheets) — not checked from here yet. See Systems tab.</div>
+      </a>
     </div>
   `;
 }

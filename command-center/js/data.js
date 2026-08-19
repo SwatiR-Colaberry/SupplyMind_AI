@@ -38,6 +38,22 @@ export async function loadData() {
     };
   });
 
+  // STORY-000 (this Command Center) is pre-work tracked in progress.json but is not
+  // part of the delivery plan, so it never appears in plan.stories. Surface it from
+  // progress.json alone so PM views don't silently drop the story being demoed.
+  const p000 = progressById.get("STORY-000");
+  if (p000 && !stories.some((s) => s.id === "STORY-000")) {
+    stories.unshift({
+      id: "STORY-000",
+      title: "Command Center",
+      release: null,
+      narrative: "As the project owner, I want a single page that shows what SupplyMind AI is, what it's meant to move, and how far along it is, so that I have one place to demo from and one place that keeps everyone honest about what's actually built.",
+      due_on: null,
+      verification: p000.verification,
+      criteria: p000.criteria,
+    });
+  }
+
   cached = { plan, progress, manifest, profile, stories };
   return cached;
 }
@@ -48,4 +64,13 @@ export function releaseForStory(plan, storyId) {
 
 export function requirementsFulfilledBy(plan, storyId) {
   return (plan?.requirements || []).filter((r) => (r.fulfilled_by || []).includes(storyId));
+}
+
+export function storyById(stories, storyId) {
+  return (stories || []).find((s) => s.id === storyId) || null;
+}
+
+export function personaFromNarrative(narrative) {
+  const m = String(narrative || "").match(/^As an? ([^,]+),/i);
+  return m ? m[1].trim() : null;
 }

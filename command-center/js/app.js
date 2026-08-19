@@ -1,19 +1,38 @@
 import { loadData } from "./data.js";
 import { formatAbsoluteDate, relativeAge, ageInDays } from "./format.js";
 import { renderOverview } from "./tabs/overview.js";
-import { renderStub } from "./tabs/stub.js";
+import { renderOutcomes } from "./tabs/outcomes.js";
+import { renderUsers } from "./tabs/users.js";
+import { renderGuardrails } from "./tabs/guardrails.js";
+import { renderSystems } from "./tabs/systems.js";
+import { renderPM } from "./tabs/pm.js";
+import { renderAgents } from "./tabs/agents.js";
+import { renderKB } from "./tabs/kb.js";
+import { renderDataModel } from "./tabs/datamodel.js";
 
 const TABS = [
-  { key: "overview", label: "Overview", built: true },
-  { key: "outcomes", label: "Outcomes", built: false, title: "Outcomes", blurb: "The numbers this project is meant to move." },
-  { key: "users", label: "Users & Use Case", built: false, title: "Users and Use Case", blurb: "Who this is for and what they're trying to get done." },
-  { key: "guardrails", label: "Guardrails", built: false, title: "Guardrails", blurb: "What must never happen." },
-  { key: "systems", label: "Systems", built: false, title: "Systems", blurb: "What this connects to." },
-  { key: "pm", label: "Project Management", built: false, title: "Project Management", blurb: "Releases, schedule, and every task's status." },
-  { key: "agents", label: "AI Agents", built: false, title: "AI Agents", blurb: "The agent roster and what each one owns." },
-  { key: "kb", label: "Knowledge Base", built: false, title: "Knowledge Base", blurb: "Requirements, stories, traceability, and a chat panel over this project's own data." },
-  { key: "data-model", label: "Data Model", built: false, title: "Data Model", blurb: "The tables behind all of the above." },
+  { key: "overview", label: "Overview" },
+  { key: "outcomes", label: "Outcomes" },
+  { key: "users", label: "Users & Use Case" },
+  { key: "guardrails", label: "Guardrails" },
+  { key: "systems", label: "Systems" },
+  { key: "pm", label: "Project Management" },
+  { key: "agents", label: "AI Agents" },
+  { key: "kb", label: "Knowledge Base" },
+  { key: "data-model", label: "Data Model" },
 ];
+
+const RENDERERS = {
+  overview: renderOverview,
+  outcomes: renderOutcomes,
+  users: renderUsers,
+  guardrails: renderGuardrails,
+  systems: renderSystems,
+  pm: renderPM,
+  agents: renderAgents,
+  kb: renderKB,
+  "data-model": renderDataModel,
+};
 
 const MODE_KEY = "cc-mode";
 function getMode() {
@@ -100,11 +119,8 @@ async function renderApp() {
   });
 
   const tabDef = TABS.find((t) => t.key === key) || TABS[0];
-  if (tabDef.key === "overview") {
-    renderOverview(main, ctx);
-  } else {
-    renderStub(main, ctx, tabDef, rest);
-  }
+  const renderer = RENDERERS[tabDef.key] || renderOverview;
+  renderer(main, ctx, rest);
 }
 
 window.addEventListener("hashchange", renderApp);
