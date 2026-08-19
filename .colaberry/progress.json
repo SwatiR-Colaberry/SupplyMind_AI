@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "totals": {
+    "stories_total": 16,
+    "stories_verified": 0,
+    "criteria_total": 5,
+    "criteria_passed": 0,
+    "points_awarded": 0
+  },
+  "stories": [
+    {
+      "id": "STORY-000",
+      "criteria": [
+        { "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.", "passed": false },
+        { "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.", "passed": false },
+        { "text": "Given the data files, when any tab renders, then its content comes from .colaberry/plan.json and .colaberry/progress.json read at runtime rather than from hard-coded values.", "passed": false },
+        { "text": "Given .colaberry/manifest.json, when any tab is shown, then it displays how old the data is and warns when that age exceeds a week.", "passed": false },
+        { "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.", "passed": false }
+      ],
+      "verification": { "state": "in_progress", "commit": null, "points": 0 }
+    },
+    { "id": "STORY-001", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-002", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-011", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-003", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-004", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-012", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-005", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-006", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-013", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-007", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-008", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-014", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-015", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-009", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-010", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } }
+  ]
+}

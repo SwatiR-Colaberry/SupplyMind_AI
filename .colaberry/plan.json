@@ -1,0 +1,85 @@
+{
+  "schema_version": 2,
+  "project": {
+    "name": "SupplyMind AI",
+    "descriptor": "Autonomous Supply Chain Intelligence Platform"
+  },
+  "schedule": {
+    "build_start": "2026-08-16",
+    "build_end": "2026-10-01",
+    "demo_day": "2026-10-08",
+    "demo_release_key": "r2"
+  },
+  "requirements": [
+    { "id": "REQ-001", "kind": "FUNC", "priority": "must", "cluster": "data-integration", "statement": "The system must analyze customer orders, product catalogs, inventory, warehouses, suppliers, purchase orders, shipments, delivery records, product demand, transportation costs, and supplier performance data.", "fulfilled_by": ["STORY-001"] },
+    { "id": "REQ-002", "kind": "FUNC", "priority": "must", "cluster": "agent-orchestration", "statement": "The system must use AI agents to analyze supply chain data and surface important decisions.", "fulfilled_by": ["STORY-002"] },
+    { "id": "REQ-003", "kind": "FUNC", "priority": "must", "cluster": "intelligence-model", "statement": "The system must provide a four-stage intelligence model: Observe, Understand, Predict, Recommend.", "fulfilled_by": ["STORY-012"] },
+    { "id": "REQ-004", "kind": "FUNC", "priority": "must", "cluster": "agent-orchestration", "statement": "The system must use an Orchestrator Agent to coordinate AI agents and validate their responses.", "fulfilled_by": ["STORY-002"] },
+    { "id": "REQ-005", "kind": "FUNC", "priority": "must", "cluster": "forecasting", "statement": "The system must provide demand forecasting using historical demand, seasonality, and trends.", "fulfilled_by": ["STORY-003"] },
+    { "id": "REQ-006", "kind": "FUNC", "priority": "must", "cluster": "inventory-risk", "statement": "The system must analyze current inventory, turnover, safety stock, and stockout risk.", "fulfilled_by": ["STORY-004"] },
+    { "id": "REQ-007", "kind": "FUNC", "priority": "must", "cluster": "supplier-risk", "statement": "The system must evaluate supplier reliability, delivery performance, and generate a Supplier Risk Score.", "fulfilled_by": ["STORY-013"] },
+    { "id": "REQ-008", "kind": "FUNC", "priority": "must", "cluster": "logistics", "statement": "The system must analyze shipment delays, delivery times, and transportation costs.", "fulfilled_by": ["STORY-014"] },
+    { "id": "REQ-009", "kind": "FUNC", "priority": "must", "cluster": "anomaly-detection", "statement": "The system must detect anomalies such as unexpected demand spikes and supplier delays.", "fulfilled_by": ["STORY-005"] },
+    { "id": "REQ-010", "kind": "FUNC", "priority": "must", "cluster": "recommendations", "statement": "The system must generate actionable recommendations based on AI agent outputs.", "fulfilled_by": ["STORY-006"] },
+    { "id": "REQ-011", "kind": "FUNC", "priority": "must", "cluster": "inventory-risk", "statement": "The system must predict stockout risks and delivery delays.", "fulfilled_by": ["STORY-004", "STORY-014"] },
+    { "id": "REQ-012", "kind": "FUNC", "priority": "must", "cluster": "supplier-risk", "statement": "The system must create a unified Supply Chain Risk Score and explain why it is high.", "fulfilled_by": ["STORY-005"] },
+    { "id": "REQ-013", "kind": "FUNC", "priority": "must", "cluster": "root-cause", "statement": "The system must perform AI-powered root cause analysis for supply chain issues.", "fulfilled_by": ["STORY-007"] },
+    { "id": "REQ-014", "kind": "FUNC", "priority": "must", "cluster": "simulation", "statement": "The system must simulate supply chain scenarios to estimate impacts of changes.", "fulfilled_by": ["STORY-008"] },
+    { "id": "REQ-015", "kind": "FUNC", "priority": "must", "cluster": "dashboard", "statement": "The system must provide an Executive Control Tower dashboard with key supply chain metrics.", "fulfilled_by": ["STORY-009"] },
+    { "id": "REQ-016", "kind": "FUNC", "priority": "must", "cluster": "chat-interface", "statement": "The system must provide an AI chat interface for natural language interaction.", "fulfilled_by": ["STORY-010"] },
+    { "id": "REQ-017", "kind": "FUNC", "priority": "must", "cluster": "data-quality", "statement": "The system must monitor data quality and provide a Data Quality Score.", "fulfilled_by": ["STORY-015"] },
+    { "id": "REQ-018", "kind": "CONSTRAINT", "priority": "must", "cluster": "data-integration", "statement": "The system must connect to PostgreSQL and Google Sheets for data access.", "fulfilled_by": ["STORY-001", "STORY-011"] }
+  ],
+  "stories": [
+    { "id": "STORY-001", "title": "Basic Data Integration and Analysis", "release": "r0", "narrative": "As a data analyst, I want the system to integrate data from customer orders, product catalogs, inventory, warehouses, suppliers, purchase orders, shipments, and delivery records, so that I can analyze the full supply chain in one place.", "acceptance_criteria": [], "due_on": "2026-08-16", "due_baseline_on": "2026-08-16" },
+    { "id": "STORY-002", "title": "Orchestrator Agent Coordination", "release": "r0", "narrative": "As a system auditor, I want an Orchestrator Agent to coordinate AI agents and validate their responses, so that I can trust the outputs of the intelligence system.", "acceptance_criteria": [], "due_on": "2026-08-20", "due_baseline_on": "2026-08-20" },
+    { "id": "STORY-011", "title": "Trust Spine Implementation for Data Processing", "release": "r0", "narrative": "As a data steward, I want a trust spine on data processing, so that I can verify the integrity of data feeding the intelligence system.", "acceptance_criteria": [], "due_on": "2026-08-23", "due_baseline_on": "2026-08-23" },
+    { "id": "STORY-003", "title": "Demand Forecasting Implementation", "release": "r1", "narrative": "As a supply chain manager, I want demand forecasts based on historical demand, seasonality, and trends, so that I can plan inventory and procurement proactively.", "acceptance_criteria": [], "due_on": "2026-08-26", "due_baseline_on": "2026-08-26" },
+    { "id": "STORY-004", "title": "Stockout Risk Prediction", "release": "r1", "narrative": "As a logistics coordinator, I want to see predicted stockout risks, so that I can reroute stock or expedite orders before a shortage happens.", "acceptance_criteria": [], "due_on": "2026-08-29", "due_baseline_on": "2026-08-29" },
+    { "id": "STORY-012", "title": "Intelligence Model Implementation", "release": "r1", "narrative": "As a data analyst, I want a four-stage intelligence model (Observe, Understand, Predict, Recommend), so that the system reasons through supply chain data consistently.", "acceptance_criteria": [], "due_on": "2026-09-02", "due_baseline_on": "2026-09-02" },
+    { "id": "STORY-005", "title": "Risk Detection and Anomaly Analysis", "release": "r2", "narrative": "As a supply chain manager, I want the system to detect anomalies such as demand spikes and supplier delays, so that I can respond before they become disruptions.", "acceptance_criteria": [], "due_on": "2026-09-05", "due_baseline_on": "2026-09-05" },
+    { "id": "STORY-006", "title": "Recommendation Generation", "release": "r2", "narrative": "As a supply chain manager, I want actionable recommendations generated from AI agent outputs, so that I know what action to take, not just what the data shows.", "acceptance_criteria": [], "due_on": "2026-09-08", "due_baseline_on": "2026-09-08" },
+    { "id": "STORY-013", "title": "Supplier Reliability Evaluation", "release": "r2", "narrative": "As a supply chain manager, I want supplier reliability scored from delivery performance, so that I can decide which suppliers to lean on and which to hedge against.", "acceptance_criteria": [], "due_on": "2026-09-11", "due_baseline_on": "2026-09-11" },
+    { "id": "STORY-007", "title": "Root Cause Analysis", "release": "r3", "narrative": "As a data analyst, I want AI-powered root cause analysis of supply chain issues, so that I can understand why a problem happened, not just that it happened.", "acceptance_criteria": [], "due_on": "2026-09-14", "due_baseline_on": "2026-09-14" },
+    { "id": "STORY-008", "title": "Scenario Simulation", "release": "r3", "narrative": "As an executive, I want to simulate supply chain scenarios, so that I can estimate the impact of a change before committing to it.", "acceptance_criteria": [], "due_on": "2026-09-16", "due_baseline_on": "2026-09-16" },
+    { "id": "STORY-014", "title": "Shipment Delay Analysis", "release": "r3", "narrative": "As a logistics coordinator, I want shipment delays and transportation costs analyzed, so that I can spot lanes that are consistently under-performing.", "acceptance_criteria": [], "due_on": "2026-09-19", "due_baseline_on": "2026-09-19" },
+    { "id": "STORY-015", "title": "Data Quality Monitoring", "release": "r3", "narrative": "As a data steward, I want a Data Quality Score across the ingested data, so that I know how much to trust what the rest of the system is showing.", "acceptance_criteria": [], "due_on": "2026-09-21", "due_baseline_on": "2026-09-21" },
+    { "id": "STORY-009", "title": "Executive Dashboard Development", "release": "r4", "narrative": "As an executive, I want an Executive Control Tower dashboard with key supply chain metrics, so that I can see the state of the supply chain at a glance.", "acceptance_criteria": [], "due_on": "2026-09-26", "due_baseline_on": "2026-09-26" },
+    { "id": "STORY-010", "title": "AI Chat Interface Implementation", "release": "r4", "narrative": "As an executive, I want an AI chat interface for natural language interaction, so that I can ask questions about the supply chain without learning a query language.", "acceptance_criteria": [], "due_on": "2026-10-01", "due_baseline_on": "2026-10-01" }
+  ],
+  "releases": [
+    { "key": "r0", "name": "Initial Skeleton", "starts_on": "2026-08-16", "ends_on": "2026-08-23", "story_ids": ["STORY-001", "STORY-002", "STORY-011"], "is_demo_target": false },
+    { "key": "r1", "name": "Predictive Intelligence", "starts_on": "2026-08-26", "ends_on": "2026-09-02", "story_ids": ["STORY-003", "STORY-004", "STORY-012"], "is_demo_target": false },
+    { "key": "r2", "name": "Risk and Recommendation", "starts_on": "2026-09-05", "ends_on": "2026-09-11", "story_ids": ["STORY-005", "STORY-006", "STORY-013"], "is_demo_target": true },
+    { "key": "r3", "name": "Advanced Analytics", "starts_on": "2026-09-14", "ends_on": "2026-09-21", "story_ids": ["STORY-007", "STORY-008", "STORY-014", "STORY-015"], "is_demo_target": false },
+    { "key": "r4", "name": "User Interface and Dashboard", "starts_on": "2026-09-26", "ends_on": "2026-10-01", "story_ids": ["STORY-009", "STORY-010"], "is_demo_target": false }
+  ],
+  "agents": [],
+  "derived": {
+    "measures": [],
+    "roles": [
+      { "id": "supply-chain-manager", "name": "Supply Chain Manager" },
+      { "id": "executive", "name": "Executive" },
+      { "id": "system-auditor", "name": "System Auditor" },
+      { "id": "data-analyst", "name": "Data Analyst" },
+      { "id": "logistics-coordinator", "name": "Logistics Coordinator" },
+      { "id": "data-steward", "name": "Data Steward" }
+    ],
+    "guardrails": [],
+    "systems": ["PostgreSQL", "Google Sheets"],
+    "story_owners": [
+      { "owner": "Data Engineer", "story_ids": ["STORY-001"] },
+      { "owner": "AI Developer", "story_ids": ["STORY-002", "STORY-005", "STORY-006", "STORY-010"] },
+      { "owner": "Data Scientist", "story_ids": ["STORY-003", "STORY-004"] },
+      { "owner": "Data Analyst", "story_ids": ["STORY-007", "STORY-008", "STORY-012"] },
+      { "owner": "UI/UX Designer", "story_ids": ["STORY-009"] },
+      { "owner": "System Auditor", "story_ids": ["STORY-011"] },
+      { "owner": "Supply Chain Manager", "story_ids": ["STORY-013"] },
+      { "owner": "Logistics Coordinator", "story_ids": ["STORY-014"] },
+      { "owner": "Data Steward", "story_ids": ["STORY-015"] }
+    ],
+    "counts": {
+      "agents_by_autonomy": {}
+    }
+  }
+}

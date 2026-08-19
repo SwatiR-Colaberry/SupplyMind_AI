@@ -1,0 +1,78 @@
+/*
+  Design tokens — the one place to change when a brand palette is chosen.
+  Everything below this file references these custom properties by role,
+  never a raw hex, so swapping the palette is a one-line-per-token change.
+*/
+:root {
+  color-scheme: light;
+
+  /* Brand accent — currently neutral slate-blue placeholder. Swap here only. */
+  --accent: #2a5db0;
+  --accent-strong: #1c3f80;
+  --accent-soft: #e8eefb;
+
+  /* Surfaces */
+  --surface-0: #f5f6f8;
+  --surface-1: #ffffff;
+  --surface-2: #eef0f4;
+  --border: #d9dce3;
+
+  /* Text */
+  --text-primary: #14161a;
+  --text-secondary: #52565f;
+  --text-muted: #858992;
+  --text-on-accent: #ffffff;
+
+  /* Status */
+  --status-good: #1a7f4b;
+  --status-good-bg: #e5f5ec;
+  --status-warning: #a15c00;
+  --status-warning-bg: #fbeed9;
+  --status-unknown: #6b6f78;
+  --status-unknown-bg: #eceef2;
+  --status-critical: #b23b2f;
+  --status-critical-bg: #fbe7e4;
+
+  /* Sample-mode flag color — always amber, never confused with real data */
+  --sample-flag: #a15c00;
+  --sample-flag-bg: #fff4e0;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow-1: 0 1px 2px rgba(20, 22, 26, 0.06), 0 1px 1px rgba(20, 22, 26, 0.04);
+  --shadow-2: 0 4px 16px rgba(20, 22, 26, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --accent: #6fa0ec;
+    --accent-strong: #9dc0f5;
+    --accent-soft: #1c2c47;
+
+    --surface-0: #121317;
+    --surface-1: #1a1c21;
+    --surface-2: #22252c;
+    --border: #33363f;
+
+    --text-primary: #f2f3f5;
+    --text-secondary: #b7bac2;
+    --text-muted: #82868f;
+    --text-on-accent: #0d1117;
+
+    --status-good: #4fce8f;
+    --status-good-bg: #123526;
+    --status-warning: #e0a840;
+    --status-warning-bg: #3a2c0e;
+    --status-unknown: #9a9ea7;
+    --status-unknown-bg: #24262c;
+    --status-critical: #ec6f61;
+    --status-critical-bg: #3a1e1a;
+
+    --sample-flag: #e0a840;
+    --sample-flag-bg: #3a2c0e;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-2: 0 4px 20px rgba(0, 0, 0, 0.4);
+  }
+}
