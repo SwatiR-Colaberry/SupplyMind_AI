@@ -13,6 +13,12 @@ export function cardLink(href, innerHtml, extraClass = "") {
   return `<a class="cc-card clickable ${extraClass}" href="${href}">${innerHtml}</a>`;
 }
 
+// A read-only attribute/metric tile with nothing further to drill into —
+// visually identical to .cc-card but never claims to be clickable.
+export function statTile(innerHtml) {
+  return `<div class="cc-stat-tile">${innerHtml}</div>`;
+}
+
 export function breadcrumb(items) {
   // items: [{ label, href? }] — last item has no href (current page)
   return `<div class="cc-breadcrumb">${items

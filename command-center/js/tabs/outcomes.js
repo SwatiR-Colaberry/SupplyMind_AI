@@ -9,7 +9,7 @@ export function renderOutcomes(main, ctx) {
     ${
       measures.length
         ? `<div class="cc-card-grid">${measures
-            .map((m) => `<div class="cc-card"><div class="cc-stat-label">${m.name || m.id}</div><div class="cc-stat-value">${m.value ?? "—"}</div></div>`)
+            .map((m) => `<div class="cc-stat-tile"><div class="cc-stat-label">${m.name || m.id}</div><div class="cc-stat-value">${m.value ?? "—"}</div></div>`)
             .join("")}</div>`
         : emptyState(
             "No outcome measures defined yet",

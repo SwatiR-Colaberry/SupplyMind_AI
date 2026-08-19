@@ -120,19 +120,19 @@ function renderStoryDetail(main, ctx, storyId) {
     <h1 class="cc-page-title">${escapeHtml(story.id)} — ${escapeHtml(story.title)}</h1>
     <p class="cc-page-sub">${escapeHtml(story.narrative || "")}</p>
     <div class="cc-card-grid">
-      <div class="cc-card">
+      <div class="cc-stat-tile">
         <div class="cc-stat-label">Status</div>
         <div style="margin-top:4px;">${statusBadge(story.verification?.state)}</div>
       </div>
-      <div class="cc-card">
+      <div class="cc-stat-tile">
         <div class="cc-stat-label">Release</div>
         <div class="cc-stat-value" style="font-size:18px;">${escapeHtml(release?.key || "pre-work")}</div>
       </div>
-      <div class="cc-card">
+      <div class="cc-stat-tile">
         <div class="cc-stat-label">Due</div>
         <div class="cc-stat-value" style="font-size:18px;">${escapeHtml(story.due_on || "—")}</div>
       </div>
-      <div class="cc-card">
+      <div class="cc-stat-tile">
         <div class="cc-stat-label">Points</div>
         <div class="cc-stat-value" style="font-size:18px;">${story.verification?.points ?? 0}</div>
       </div>

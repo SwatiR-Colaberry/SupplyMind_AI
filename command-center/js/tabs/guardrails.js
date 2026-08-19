@@ -9,7 +9,7 @@ export function renderGuardrails(main, ctx) {
     ${
       guardrails.length
         ? `<div class="cc-card-grid">${guardrails
-            .map((g) => `<div class="cc-card"><div class="cc-stat-label">Guardrail</div><div>${g.statement || g.name || JSON.stringify(g)}</div></div>`)
+            .map((g) => `<div class="cc-stat-tile"><div class="cc-stat-label">Guardrail</div><div>${g.statement || g.name || JSON.stringify(g)}</div></div>`)
             .join("")}</div>`
         : emptyState(
             "No guardrails defined yet",

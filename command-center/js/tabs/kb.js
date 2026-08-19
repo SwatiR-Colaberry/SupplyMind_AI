@@ -58,9 +58,9 @@ function renderReqDetail(main, ctx, reqId) {
     <h1 class="cc-page-title">${escapeHtml(req.id)}</h1>
     <p class="cc-page-sub">${escapeHtml(req.statement)}</p>
     <div class="cc-card-grid">
-      <div class="cc-card"><div class="cc-stat-label">Kind</div><div>${escapeHtml(req.kind)}</div></div>
-      <div class="cc-card"><div class="cc-stat-label">Priority</div><div>${escapeHtml(req.priority)}</div></div>
-      <div class="cc-card"><div class="cc-stat-label">Cluster</div><div>${escapeHtml(req.cluster)}</div></div>
+      <div class="cc-stat-tile"><div class="cc-stat-label">Kind</div><div>${escapeHtml(req.kind)}</div></div>
+      <div class="cc-stat-tile"><div class="cc-stat-label">Priority</div><div>${escapeHtml(req.priority)}</div></div>
+      <div class="cc-stat-tile"><div class="cc-stat-label">Cluster</div><div>${escapeHtml(req.cluster)}</div></div>
     </div>
     <div class="cc-section">
       <h2>Stories fulfilling this requirement</h2>

@@ -68,7 +68,7 @@ function renderSystemDetail(main, ctx, name) {
   main.innerHTML = `
     ${breadcrumb([{ label: "Systems", href: "#/systems" }, { label: name }])}
     <h1 class="cc-page-title">${escapeHtml(name)}</h1>
-    <div class="cc-card">
+    <div class="cc-stat-tile">
       <div class="cc-stat-label">Connectivity ${sampleBadge(mode)}</div>
       <div style="margin-top:4px;"><span class="cc-status-dot ${conn.status}"></span>${escapeHtml(conn.label)}</div>
     </div>
