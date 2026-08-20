@@ -19,7 +19,15 @@
       ],
       "verification": { "state": "in_progress", "commit": null, "points": 0 }
     },
-    { "id": "STORY-001", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    {
+      "id": "STORY-001",
+      "criteria": [
+        { "text": "Given data in PostgreSQL and Google Sheets, when the system integrates it, then it should be available for analysis.", "passed": true },
+        { "text": "Given missing data, when the system attempts integration, then it should log an error.", "passed": true },
+        { "text": "Trust: The system logs all data integration attempts with timestamps.", "passed": true }
+      ],
+      "verification": { "state": "in_progress", "commit": null, "points": 0 }
+    },
     { "id": "STORY-002", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-011", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-003", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
