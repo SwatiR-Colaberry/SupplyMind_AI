@@ -28,7 +28,15 @@
       ],
       "verification": { "state": "in_progress", "commit": null, "points": 0 }
     },
-    { "id": "STORY-002", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    {
+      "id": "STORY-002",
+      "criteria": [
+        { "text": "Given a supply chain query, when the Orchestrator Agent receives it, then it should coordinate the appropriate AI agents.", "passed": true },
+        { "text": "Given an invalid response from an AI agent, when the Orchestrator Agent validates it, then it should request a re-evaluation.", "passed": true },
+        { "text": "Trust: The system logs all agent coordination activities with timestamps.", "passed": true }
+      ],
+      "verification": { "state": "in_progress", "commit": null, "points": 0 }
+    },
     { "id": "STORY-011", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-003", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-004", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
