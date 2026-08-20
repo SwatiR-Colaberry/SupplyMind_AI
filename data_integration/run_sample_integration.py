@@ -16,19 +16,30 @@ Usage:
     SUPPLYMIND_PG_HOST=... SUPPLYMIND_PG_DATABASE=... SUPPLYMIND_PG_USER=... \\
     SUPPLYMIND_PG_PASSWORD=... SUPPLYMIND_GOOGLE_SERVICE_ACCOUNT_JSON=... \\
         python -m data_integration.run_sample_integration
+
+Every run appends one audit-trail record per dataset to the JSONL file at
+SUPPLYMIND_AUDIT_LOG_PATH (default: audit_log.jsonl next to this file).
+Rerunning with unchanged source data does not add duplicate entries —
+that's the STORY-011 idempotency guarantee, provable end-to-end by
+running this script twice and diffing the audit log's line count.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
+from pathlib import Path
 
+from data_integration.audit_trail import AuditStore
 from data_integration.orchestrator import (
     PostgresDataset,
     SheetsDataset,
     available_for_analysis,
-    run_integration,
+    run_integration_with_audit,
 )
+
+DEFAULT_AUDIT_LOG_PATH = Path(__file__).resolve().parent / "audit_log.jsonl"
 
 # Placeholders until real sheets are provisioned.
 PRODUCT_CATALOG_SHEET_ID = "REPLACE_WITH_PRODUCT_CATALOG_SHEET_ID"
@@ -53,8 +64,14 @@ DATASETS = [
 ]
 
 
+def _audit_store() -> AuditStore:
+    path = os.environ.get("SUPPLYMIND_AUDIT_LOG_PATH", str(DEFAULT_AUDIT_LOG_PATH))
+    return AuditStore(path)
+
+
 def main() -> int:
-    results = run_integration(DATASETS)
+    audit_store = _audit_store()
+    results = run_integration_with_audit(DATASETS, audit_store)
     analysis_ready = available_for_analysis(results)
 
     summary = {

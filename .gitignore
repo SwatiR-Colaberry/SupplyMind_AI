@@ -4,3 +4,4 @@ tmp/
 node_modules/
 __pycache__/
 .DS_Store
+audit_log.jsonl

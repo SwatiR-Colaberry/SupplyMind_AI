@@ -37,7 +37,11 @@
       ],
       "verification": { "state": "in_progress", "commit": null, "points": 0 }
     },
-    { "id": "STORY-011", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-011", "criteria": [
+      { "text": "Given data is processed, when the same data is reprocessed, then the system ensures no duplicate entries.", "passed": true },
+      { "text": "Given data processing occurs, when an error is detected, then the system logs the error with details.", "passed": true },
+      { "text": "Trust: Given data processing, then an audit trail is created for each transaction.", "passed": true }
+    ], "verification": { "state": "in_progress", "commit": null, "points": 0 } },
     { "id": "STORY-003", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-004", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-012", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },

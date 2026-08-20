@@ -10,10 +10,14 @@ actually mean in code.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal, Union
 
 from data_integration import postgres_connector, sheets_connector
+from data_integration.audit_trail import AuditStore, AuditTrailWriteError
 from data_integration.logging_setup import get_logger
 
 logger = get_logger()
@@ -103,3 +107,65 @@ def run_integration(datasets: list[Dataset]) -> list[DatasetResult]:
 def available_for_analysis(results: list[DatasetResult]) -> dict[str, list[dict[str, Any]]]:
     """The subset of pulled data that is ready to analyze — successes only."""
     return {r.name: r.rows for r in results if r.outcome == "success"}
+
+
+def _content_fingerprint(rows: list[dict[str, Any]]) -> str:
+    """Deterministic fingerprint of fetched rows, used as the idempotency key.
+
+    Two runs that fetch identical rows for the same dataset must fingerprint
+    identically, so a rerun is recognized as a reprocessing of the same
+    data rather than new data. Row order is not part of dataset identity —
+    the sample queries have no ORDER BY, so the same underlying rows can
+    come back in a different order across runs — so rows are sorted into a
+    canonical order before hashing.
+    """
+    canonical_rows = sorted(json.dumps(row, sort_keys=True, default=str) for row in rows)
+    payload = json.dumps(canonical_rows)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def run_integration_with_audit(
+    datasets: list[Dataset], audit_store: AuditStore
+) -> list[DatasetResult]:
+    """run_integration(), plus one audit-trail record per dataset attempt.
+
+    Successful attempts are keyed on dataset name + a content fingerprint
+    of the rows fetched, so reprocessing identical data does not create a
+    duplicate audit entry. Failed attempts are keyed on a fresh id every
+    time instead — a repeated failure is itself diagnostic information
+    (e.g. "this source has been down for 3 runs") and must not be
+    collapsed away by dedup.
+
+    An audit-trail write failure for one dataset is caught and logged, not
+    raised — the same failure-isolation guarantee run_integration() gives
+    per-dataset fetch failures applies here too, so a broken audit trail
+    for one dataset can't discard the already-fetched results for every
+    other dataset in this run.
+    """
+    results = run_integration(datasets)
+    for result in results:
+        if result.outcome == "success":
+            key = f"{result.name}:{_content_fingerprint(result.rows)}"
+        else:
+            key = f"{result.name}:error:{uuid.uuid4()}"
+        try:
+            audit_store.record(
+                idempotency_key=key,
+                dataset=result.name,
+                source_type=result.source_type,
+                outcome=result.outcome,
+                row_count=len(result.rows),
+                error=result.error,
+            )
+        except AuditTrailWriteError as exc:
+            logger.error(
+                "audit_trail_unavailable",
+                extra={
+                    "event": "audit_trail_unavailable",
+                    "source": result.source_type,
+                    "outcome": "failure",
+                    "error_class": exc.__class__.__name__,
+                    "context": {"dataset": result.name},
+                },
+            )
+    return results
