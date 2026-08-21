@@ -47,7 +47,11 @@
       { "text": "Given incomplete demand data, when the system attempts forecasting, then it should notify the user of potential inaccuracies.", "passed": true },
       { "text": "Trust: The system logs all forecasting activities with timestamps and confidence levels.", "passed": true }
     ], "verification": { "state": "in_progress", "commit": null, "points": 0 } },
-    { "id": "STORY-004", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-004", "criteria": [
+      { "text": "Given inventory data, when the system analyzes it, then it should predict stockout risks.", "passed": true },
+      { "text": "Given inaccurate inventory data, when the system attempts prediction, then it should flag the data for review.", "passed": true },
+      { "text": "Trust: The system logs all stockout risk predictions with timestamps and confidence levels.", "passed": true }
+    ], "verification": { "state": "in_progress", "commit": null, "points": 0 } },
     { "id": "STORY-012", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-005", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-006", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
