@@ -11,7 +11,7 @@
     "demo_release_key": "r2"
   },
   "requirements": [
-    { "id": "REQ-001", "kind": "FUNC", "priority": "must", "cluster": "data-integration", "statement": "The system must analyze customer orders, product catalogs, inventory, warehouses, suppliers, purchase orders, shipments, delivery records, product demand, transportation costs, and supplier performance data.", "fulfilled_by": ["STORY-001"] },
+    { "id": "REQ-001", "kind": "FUNC", "priority": "must", "cluster": "data-integration", "statement": "The system must analyze customer orders, product catalogs, inventory, warehouses, suppliers, purchase orders, shipments, delivery records, product demand, transportation costs, and supplier performance data.", "fulfilled_by": ["STORY-001", "STORY-011"] },
     { "id": "REQ-002", "kind": "FUNC", "priority": "must", "cluster": "agent-orchestration", "statement": "The system must use AI agents to analyze supply chain data and surface important decisions.", "fulfilled_by": ["STORY-002"] },
     { "id": "REQ-003", "kind": "FUNC", "priority": "must", "cluster": "intelligence-model", "statement": "The system must provide a four-stage intelligence model: Observe, Understand, Predict, Recommend.", "fulfilled_by": ["STORY-012"] },
     { "id": "REQ-004", "kind": "FUNC", "priority": "must", "cluster": "agent-orchestration", "statement": "The system must use an Orchestrator Agent to coordinate AI agents and validate their responses.", "fulfilled_by": ["STORY-002"] },
