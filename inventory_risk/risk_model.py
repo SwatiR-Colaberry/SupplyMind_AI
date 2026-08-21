@@ -111,22 +111,38 @@ def assess_stockout_risk(position: InventoryPosition) -> StockoutRiskAssessment:
     coverage_ratio = days_of_supply / position.lead_time_days if has_demand else math.inf
     medium_threshold_days = position.lead_time_days * MEDIUM_COVERAGE_RATIO
 
+    # boundary_distance_days is the distance (in days-of-supply terms) to the
+    # *nearest* edge of the current risk zone, so confidence reflects how deep
+    # into the zone a position sits rather than only how close it is to one
+    # particular edge. `normalizer` scales that distance to 0..1 using each
+    # zone's own width, since the zones aren't the same width: "medium" is
+    # only MEDIUM_COVERAGE_RATIO - 1 (0.5) lead times wide, so normalizing it
+    # by the full lead time like the open-ended zones would cap its
+    # confidence at ~0.25 even dead-center in the zone.
     if position.current_stock <= position.safety_stock:
         risk_level: RiskLevel = "critical"
         boundary_distance_days = position.safety_stock - position.current_stock
+        normalizer = position.lead_time_days
     elif coverage_ratio < 1.0:
         risk_level = "high"
-        boundary_distance_days = position.lead_time_days - days_of_supply
+        # "high" is bounded on both sides: the critical floor below, and the
+        # medium threshold above. distance_to_critical converts the
+        # stock-vs-safety_stock gap into the same days-of-supply units as
+        # distance_to_medium so the two are comparable.
+        distance_to_critical = (position.current_stock - position.safety_stock) / position.daily_demand_rate
+        distance_to_medium = position.lead_time_days - days_of_supply
+        boundary_distance_days = min(distance_to_critical, distance_to_medium)
+        normalizer = position.lead_time_days
     elif coverage_ratio < MEDIUM_COVERAGE_RATIO:
         risk_level = "medium"
         boundary_distance_days = min(days_of_supply - position.lead_time_days, medium_threshold_days - days_of_supply)
+        normalizer = (medium_threshold_days - position.lead_time_days) / 2
     else:
         risk_level = "low"
         boundary_distance_days = days_of_supply - medium_threshold_days
+        normalizer = position.lead_time_days
 
-    confidence = (
-        1.0 if math.isinf(boundary_distance_days) else max(0.0, min(1.0, boundary_distance_days / position.lead_time_days))
-    )
+    confidence = 1.0 if math.isinf(boundary_distance_days) else max(0.0, min(1.0, boundary_distance_days / normalizer))
 
     detail = (
         f"{days_of_supply:.1f} day(s) of supply against a {position.lead_time_days:.1f}-day lead time "

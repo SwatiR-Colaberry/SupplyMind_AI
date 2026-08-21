@@ -77,6 +77,26 @@ def test_confidence_near_a_boundary_is_lower_than_far_from_it():
     assert near_boundary.confidence < far_from_boundary.confidence
 
 
+def test_high_risk_confidence_drops_near_the_critical_floor():
+    # Regression: confidence for "high" used to measure distance to the medium
+    # threshold only, ignoring how close current_stock is to the safety_stock
+    # floor right below it. 1 unit above the floor should read as low
+    # confidence, not the ~0.94 the old one-sided calculation produced.
+    result = assess_stockout_risk(_position(current_stock=6.0, safety_stock=5.0, daily_demand_rate=10.0, lead_time_days=10.0))
+    assert result.risk_level == "high"
+    assert result.confidence < 0.1
+
+
+def test_medium_risk_confidence_reaches_near_one_at_the_zone_center():
+    # Regression: confidence for "medium" was normalized by the full lead
+    # time instead of the (narrower) medium zone's own width, so it capped at
+    # ~0.25 even dead-center in the zone. lead_time_days=10 -> medium zone is
+    # coverage 1.0-1.5, i.e. days_of_supply 10-15; center is 12.5.
+    result = assess_stockout_risk(_position(current_stock=125.0, safety_stock=5.0, daily_demand_rate=10.0, lead_time_days=10.0))
+    assert result.risk_level == "medium"
+    assert result.confidence > 0.9
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
