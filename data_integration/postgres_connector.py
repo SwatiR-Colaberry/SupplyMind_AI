@@ -100,3 +100,70 @@ def fetch_rows(
     raise PostgresIntegrationError(
         f"PostgreSQL unavailable after {MAX_ATTEMPTS} attempts"
     ) from last_error
+
+
+def fetch_columns(
+    query: str,
+    params: tuple[Any, ...] = (),
+    config: PostgresConfig | None = None,
+) -> list[str]:
+    """Return the column names `query` would produce, without fetching any rows.
+
+    Wraps `query` as a LIMIT-0 subquery so this works for an arbitrary
+    SELECT (not just a bare table name), and reads column names off
+    cursor.description - fetch_rows()'s RealDictCursor row dicts don't
+    exist when zero rows come back, so column names can't be read off a
+    fetched row the way fetch_rows() does. Same retry/error handling as
+    fetch_rows(): transient connection errors retry up to MAX_ATTEMPTS
+    times, auth failures and malformed queries surface immediately.
+    """
+    cfg = config or load_postgres_config()
+    probe_query = f"SELECT * FROM ({query}) AS schema_probe LIMIT 0"
+    last_error: Exception | None = None
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        start = time.monotonic()
+        conn = None
+        try:
+            conn = _connect(cfg)
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(probe_query, params)
+                    columns = [desc[0] for desc in cur.description]
+            log_integration_attempt(
+                logger,
+                source="postgresql",
+                outcome="success",
+                duration_ms=(time.monotonic() - start) * 1000,
+                context={"column_count": len(columns), "attempt": attempt, "probe": True},
+            )
+            return columns
+        except psycopg2.OperationalError as exc:
+            last_error = exc
+            log_integration_attempt(
+                logger,
+                source="postgresql",
+                outcome="failure",
+                duration_ms=(time.monotonic() - start) * 1000,
+                error_class=exc.__class__.__name__,
+                context={"attempt": attempt, "max_attempts": MAX_ATTEMPTS, "retryable": True, "probe": True},
+            )
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(RETRY_DELAY_SECONDS)
+        except Exception as exc:
+            log_integration_attempt(
+                logger,
+                source="postgresql",
+                outcome="failure",
+                duration_ms=(time.monotonic() - start) * 1000,
+                error_class=exc.__class__.__name__,
+                context={"attempt": attempt, "retryable": False, "probe": True},
+            )
+            raise PostgresIntegrationError(f"PostgreSQL schema probe failed: {exc.__class__.__name__}") from exc
+        finally:
+            if conn is not None:
+                conn.close()
+
+    raise PostgresIntegrationError(
+        f"PostgreSQL unavailable after {MAX_ATTEMPTS} attempts"
+    ) from last_error
