@@ -52,7 +52,11 @@
       { "text": "Given inaccurate inventory data, when the system attempts prediction, then it should flag the data for review.", "passed": true },
       { "text": "Trust: The system logs all stockout risk predictions with timestamps and confidence levels.", "passed": true }
     ], "verification": { "state": "in_progress", "commit": null, "points": 0 } },
-    { "id": "STORY-012", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
+    { "id": "STORY-012", "criteria": [
+      { "text": "Given raw data inputs, When processed through the model, Then the system provides observations", "passed": true },
+      { "text": "Given observations, When analyzed, Then the system provides understanding insights", "passed": true },
+      { "text": "Trust: Given model execution, Then an audit trail of model stages is maintained", "passed": true }
+    ], "verification": { "state": "in_progress", "commit": null, "points": 0 } },
     { "id": "STORY-005", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-006", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
     { "id": "STORY-013", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },

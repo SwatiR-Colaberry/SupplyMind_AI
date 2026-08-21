@@ -5,3 +5,4 @@ node_modules/
 __pycache__/
 .DS_Store
 audit_log.jsonl
+stage_audit_log.jsonl
