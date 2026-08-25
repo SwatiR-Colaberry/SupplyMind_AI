@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from inventory_risk.data_quality import assess_inventory_data_quality
+from decimal import Decimal
+
+from inventory_risk.data_quality import NUMERIC_FIELDS, assess_inventory_data_quality
 
 
 def _row(**overrides) -> dict:
@@ -109,3 +111,42 @@ def test_multiple_issues_on_one_row_are_all_reported():
     report = assess_inventory_data_quality(rows)
     reasons = report.flagged_rows[0].reasons
     assert len(reasons) == 2
+
+
+def test_decimal_values_are_accepted_and_normalized_to_float():
+    # Regression: a real PostgreSQL NUMERIC column comes back from psycopg2
+    # as decimal.Decimal, not float. Before this fix, every field failed
+    # isinstance(value, (int, float)) and every real-data inventory row was
+    # incorrectly flagged "not numeric" and silently excluded from risk
+    # assessment - this was invisible in every prior test because they all
+    # used plain float literals, never a real database round-trip.
+    rows = [
+        _row(
+            sku="SKU-DECIMAL",
+            current_stock=Decimal("3.0"),
+            safety_stock=Decimal("30.0"),
+            daily_demand_rate=Decimal("6.0"),
+            lead_time_days=Decimal("12.0"),
+        )
+    ]
+
+    report = assess_inventory_data_quality(rows)
+
+    assert report.flagged_rows == []
+    assert len(report.clean_rows) == 1
+    for field_name in NUMERIC_FIELDS:
+        value = report.clean_rows[0][field_name]
+        assert type(value) is float, f"{field_name} should be normalized to float, got {type(value)}"
+
+
+def test_decimal_negative_value_is_still_flagged():
+    rows = [_row(sku="SKU-2", current_stock=Decimal("-1.0"))]
+    report = assess_inventory_data_quality(rows)
+    assert "current_stock is negative" in report.flagged_rows[0].reasons[0]
+
+
+def test_decimal_nan_is_flagged_not_treated_as_clean():
+    rows = [_row(sku="SKU-NAN", current_stock=Decimal("NaN"))]
+    report = assess_inventory_data_quality(rows)
+    assert report.clean_rows == []
+    assert "current_stock is NaN" in report.flagged_rows[0].reasons

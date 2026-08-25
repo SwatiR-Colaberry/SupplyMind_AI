@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 REQUIRED_FIELDS = ("sku", "current_stock", "safety_stock", "daily_demand_rate", "lead_time_days")
@@ -41,13 +42,23 @@ def _row_issues(row: dict[str, Any]) -> list[str]:
     issues: list[str] = []
     for field_name in NUMERIC_FIELDS:
         value = row[field_name]
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
+        # Decimal alongside int/float: a real PostgreSQL NUMERIC column
+        # comes back from psycopg2 as decimal.Decimal, not float - a row
+        # pulled from a live database would otherwise fail this check on
+        # every field and get flagged "not numeric" despite being
+        # perfectly valid data. See assess_inventory_data_quality() below,
+        # which normalizes every accepted value to float before it
+        # reaches inventory_risk/risk_model.py, so nothing downstream
+        # needs to know about Decimal.
+        if not isinstance(value, (int, float, Decimal)) or isinstance(value, bool):
             issues.append(f"{field_name} is not numeric: {value!r}")
         elif isinstance(value, float) and math.isnan(value):
             # NaN passes isinstance(value, float) and every `< 0`/`<= 0`
             # comparison below evaluates False for NaN, so it must be
             # rejected explicitly here or it silently reaches the risk
             # model as "clean" data.
+            issues.append(f"{field_name} is NaN")
+        elif isinstance(value, Decimal) and value.is_nan():
             issues.append(f"{field_name} is NaN")
     if issues:
         # Comparisons below assume numeric, non-NaN values - bail before running them.
@@ -84,7 +95,13 @@ def assess_inventory_data_quality(rows: list[dict[str, Any]]) -> InventoryDataQu
         if issues:
             flagged_rows.append(FlaggedRow(row=row, reasons=issues))
         else:
-            clean_rows.append(row)
+            # Normalize to float here, the one place in this repo that
+            # already fully validates a row's numeric fields, rather than
+            # passing Decimal/int through unchanged - inventory_risk/risk_model.py
+            # mixes these values with plain float constants (e.g.
+            # MEDIUM_COVERAGE_RATIO), and Decimal arithmetic against a
+            # float raises TypeError rather than silently coercing.
+            clean_rows.append({**row, **{f: float(row[f]) for f in NUMERIC_FIELDS}})
 
     warnings: list[str] = []
     if not rows:

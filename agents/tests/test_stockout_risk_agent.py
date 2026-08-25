@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -203,6 +204,32 @@ def test_run_normalizes_infinite_days_of_supply_for_json_safe_logging(monkeypatc
     assert len(predicted) == 1
     assert predicted[0]["context"]["days_of_supply"] is None
     json.dumps(predicted[0]["context"], allow_nan=False)
+
+
+def test_run_assesses_rows_with_decimal_values_from_a_real_database(monkeypatch):
+    # Regression: a real PostgreSQL NUMERIC column comes back from psycopg2
+    # as decimal.Decimal, not float. Before the inventory_risk/data_quality.py
+    # fix, every row like this was incorrectly flagged "not numeric" and
+    # excluded, so the agent returned an error ("no SKU could be assessed")
+    # against perfectly valid real-world data - this reproduces that
+    # end-to-end, not just at the data_quality layer.
+    agent = StockoutRiskAgent()
+    rows = [
+        _row(
+            sku="SKU-DECIMAL",
+            current_stock=Decimal("3.0"),
+            safety_stock=Decimal("30.0"),
+            daily_demand_rate=Decimal("6.0"),
+            lead_time_days=Decimal("12.0"),
+        )
+    ]
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert validate_response(response) is response
+    assert response.status == "ok"
+    assert "SKU-DECIMAL" in response.recommendation
+    assert "critical" in response.recommendation
 
 
 def test_run_logs_a_prediction_for_every_successfully_assessed_sku(monkeypatch):

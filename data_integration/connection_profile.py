@@ -39,8 +39,9 @@ from data_integration import postgres_connector
 from data_integration.audit_trail import AuditStore
 from data_integration.config import PostgresConfig
 from inventory_risk.data_quality import REQUIRED_FIELDS as INVENTORY_REQUIRED_FIELDS
+from risk_detection.anomaly_detection import REQUIRED_DELIVERY_FIELDS
 
-DatasetKind = Literal["customer_orders", "inventory"]
+DatasetKind = Literal["customer_orders", "inventory", "delivery_records"]
 
 # Matches agents/demand_forecasting_agent.py's DEFAULT_DATE_FIELD /
 # DEFAULT_QUANTITY_FIELD - the canonical names every downstream stage
@@ -50,6 +51,11 @@ CUSTOMER_ORDERS_REQUIRED_FIELDS: tuple[str, ...] = ("order_date", "quantity")
 REQUIRED_FIELDS_BY_DATASET_KIND: dict[DatasetKind, tuple[str, ...]] = {
     "customer_orders": CUSTOMER_ORDERS_REQUIRED_FIELDS,
     "inventory": INVENTORY_REQUIRED_FIELDS,
+    # delivery_records added for STORY-005 (risk_detection/anomaly_detection.py's
+    # detect_supplier_delays()) - reuses that module's own field tuple
+    # directly, the same "one canonical source, no duplicated list" pattern
+    # "inventory" already follows against inventory_risk/data_quality.py.
+    "delivery_records": REQUIRED_DELIVERY_FIELDS,
 }
 
 

@@ -88,6 +88,24 @@ def test_error_message_names_the_tenant():
         validate_mapping_completeness(profile)
 
 
+def test_complete_delivery_records_mapping_passes():
+    # delivery_records was added for STORY-005's supplier-delay detection,
+    # after customer_orders/inventory - proves the same registry mechanism
+    # covers a third dataset kind with no changes beyond registering it.
+    profile = _profile(
+        "delivery_records", {"po_id": "PONumber", "expected_date": "DueDate", "actual_date": "ReceivedDate"}
+    )
+
+    validate_mapping_completeness(profile)  # must not raise
+
+
+def test_incomplete_delivery_records_mapping_raises():
+    profile = _profile("delivery_records", {"po_id": "PONumber"})
+
+    with pytest.raises(SchemaMappingError, match="expected_date"):
+        validate_mapping_completeness(profile)
+
+
 # --- validate_against_live_schema / validate_profile ---
 
 
