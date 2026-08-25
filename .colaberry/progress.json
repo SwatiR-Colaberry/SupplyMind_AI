@@ -1,70 +1,600 @@
 {
   "schema_version": 2,
+  "project": "SupplyMind AI",
   "totals": {
     "stories_total": 16,
-    "stories_verified": 0,
-    "criteria_total": 5,
-    "criteria_passed": 0,
-    "points_awarded": 0
+    "stories_verified": 7,
+    "stories_submitted": 0,
+    "stories_in_progress": 9,
+    "stories_not_started": 0,
+    "criteria_total": 50,
+    "criteria_passed": 23,
+    "points_awarded": 350
   },
   "stories": [
     {
       "id": "STORY-000",
+      "release": null,
+      "acceptance_total": 5,
       "criteria": [
-        { "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.", "passed": true },
-        { "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.", "passed": true },
-        { "text": "Given the data files, when any tab renders, then its content comes from .colaberry/plan.json and .colaberry/progress.json read at runtime rather than from hard-coded values.", "passed": true },
-        { "text": "Given .colaberry/manifest.json, when any tab is shown, then it displays how old the data is and warns when that age exceeds a week.", "passed": true },
-        { "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.", "passed": true }
+        {
+          "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.",
+          "passed": true
+        },
+        {
+          "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.",
+          "passed": true
+        },
+        {
+          "text": "Given the Command Center, when any tab renders, then .colaberry/plan.json and .colaberry/progress.json are both committed in this repo and every tab reads its content from them at runtime rather than from hard-coded values.",
+          "passed": true
+        },
+        {
+          "text": "Given the Command Center, when any tab is shown, then .colaberry/manifest.json is committed in this repo and every tab shows how old that data is and warns when the age exceeds a week.",
+          "passed": true
+        },
+        {
+          "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.",
+          "passed": true
+        }
       ],
-      "verification": { "state": "in_progress", "commit": null, "points": 0 }
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "verified",
+        "criteria_passed": 5,
+        "criteria_total": 5,
+        "verified_at": "2026-08-19T12:11:21.852Z",
+        "commit_sha": "390ee92ee1f204901babef24609c9f154afada79",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/390ee92ee1f204901babef24609c9f154afada79",
+        "commit_at": "2026-08-19T10:33:19Z",
+        "points_awarded": 50,
+        "outstanding": []
+      }
     },
     {
       "id": "STORY-001",
+      "release": "r0",
+      "acceptance_total": 3,
       "criteria": [
-        { "text": "Given data in PostgreSQL and Google Sheets, when the system integrates it, then it should be available for analysis.", "passed": true },
-        { "text": "Given missing data, when the system attempts integration, then it should log an error.", "passed": true },
-        { "text": "Trust: The system logs all data integration attempts with timestamps.", "passed": true }
+        {
+          "text": "Given data in PostgreSQL and Google Sheets, when the system integrates it, then it should be available for analysis.",
+          "passed": true
+        },
+        {
+          "text": "Given missing data, when the system attempts integration, then it should log an error.",
+          "passed": true
+        },
+        {
+          "text": "Trust: The system logs all data integration attempts with timestamps.",
+          "passed": true
+        }
       ],
-      "verification": { "state": "in_progress", "commit": null, "points": 0 }
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "verified",
+        "criteria_passed": 3,
+        "criteria_total": 3,
+        "verified_at": "2026-08-20T10:00:57.647Z",
+        "commit_sha": "0d7eb66b3718d519d064ad71d40ddc0eeed2854f",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/0d7eb66b3718d519d064ad71d40ddc0eeed2854f",
+        "commit_at": "2026-08-20T09:54:40Z",
+        "points_awarded": 50,
+        "outstanding": []
+      }
     },
     {
       "id": "STORY-002",
+      "release": "r0",
+      "acceptance_total": 3,
       "criteria": [
-        { "text": "Given a supply chain query, when the Orchestrator Agent receives it, then it should coordinate the appropriate AI agents.", "passed": true },
-        { "text": "Given an invalid response from an AI agent, when the Orchestrator Agent validates it, then it should request a re-evaluation.", "passed": true },
-        { "text": "Trust: The system logs all agent coordination activities with timestamps.", "passed": true }
+        {
+          "text": "Given a supply chain query, when the Orchestrator Agent receives it, then it should coordinate the appropriate AI agents.",
+          "passed": true
+        },
+        {
+          "text": "Given an invalid response from an AI agent, when the Orchestrator Agent validates it, then it should request a re-evaluation.",
+          "passed": true
+        },
+        {
+          "text": "Trust: The system logs all agent coordination activities with timestamps.",
+          "passed": true
+        }
       ],
-      "verification": { "state": "in_progress", "commit": null, "points": 0 }
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "verified",
+        "criteria_passed": 3,
+        "criteria_total": 3,
+        "verified_at": "2026-08-20T12:48:23.531Z",
+        "commit_sha": "a7415a126f0c2d775b2bd191d22c368606517e7b",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/a7415a126f0c2d775b2bd191d22c368606517e7b",
+        "commit_at": "2026-08-20T12:43:26Z",
+        "points_awarded": 50,
+        "outstanding": []
+      }
     },
-    { "id": "STORY-011", "criteria": [
-      { "text": "Given data is processed, when the same data is reprocessed, then the system ensures no duplicate entries.", "passed": true },
-      { "text": "Given data processing occurs, when an error is detected, then the system logs the error with details.", "passed": true },
-      { "text": "Trust: Given data processing, then an audit trail is created for each transaction.", "passed": true }
-    ], "verification": { "state": "in_progress", "commit": null, "points": 0 } },
-    { "id": "STORY-003", "criteria": [
-      { "text": "Given historical demand data, when the system processes it, then it should provide demand forecasts.", "passed": true },
-      { "text": "Given incomplete demand data, when the system attempts forecasting, then it should notify the user of potential inaccuracies.", "passed": true },
-      { "text": "Trust: The system logs all forecasting activities with timestamps and confidence levels.", "passed": true }
-    ], "verification": { "state": "in_progress", "commit": null, "points": 0 } },
-    { "id": "STORY-004", "criteria": [
-      { "text": "Given inventory data, when the system analyzes it, then it should predict stockout risks.", "passed": true },
-      { "text": "Given inaccurate inventory data, when the system attempts prediction, then it should flag the data for review.", "passed": true },
-      { "text": "Trust: The system logs all stockout risk predictions with timestamps and confidence levels.", "passed": true }
-    ], "verification": { "state": "in_progress", "commit": null, "points": 0 } },
-    { "id": "STORY-012", "criteria": [
-      { "text": "Given raw data inputs, When processed through the model, Then the system provides observations", "passed": true },
-      { "text": "Given observations, When analyzed, Then the system provides understanding insights", "passed": true },
-      { "text": "Trust: Given model execution, Then an audit trail of model stages is maintained", "passed": true }
-    ], "verification": { "state": "in_progress", "commit": null, "points": 0 } },
-    { "id": "STORY-005", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
-    { "id": "STORY-006", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
-    { "id": "STORY-013", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
-    { "id": "STORY-007", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
-    { "id": "STORY-008", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
-    { "id": "STORY-014", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
-    { "id": "STORY-015", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
-    { "id": "STORY-009", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } },
-    { "id": "STORY-010", "criteria": [], "verification": { "state": "not_started", "commit": null, "points": 0 } }
+    {
+      "id": "STORY-003",
+      "release": "r1",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given historical demand data, when the system processes it, then it should provide demand forecasts.",
+          "passed": true
+        },
+        {
+          "text": "Given incomplete demand data, when the system attempts forecasting, then it should notify the user of potential inaccuracies.",
+          "passed": true
+        },
+        {
+          "text": "Trust: The system logs all forecasting activities with timestamps and confidence levels.",
+          "passed": true
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "verified",
+        "criteria_passed": 3,
+        "criteria_total": 3,
+        "verified_at": "2026-08-21T12:32:48.734Z",
+        "commit_sha": "7b14a0a4d6148714e265de0c4e9b0765078a46ea",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/7b14a0a4d6148714e265de0c4e9b0765078a46ea",
+        "commit_at": "2026-08-21T12:31:22Z",
+        "points_awarded": 50,
+        "outstanding": []
+      }
+    },
+    {
+      "id": "STORY-004",
+      "release": "r1",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given inventory data, when the system analyzes it, then it should predict stockout risks.",
+          "passed": true
+        },
+        {
+          "text": "Given inaccurate inventory data, when the system attempts prediction, then it should flag the data for review.",
+          "passed": true
+        },
+        {
+          "text": "Trust: The system logs all stockout risk predictions with timestamps and confidence levels.",
+          "passed": true
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "verified",
+        "criteria_passed": 3,
+        "criteria_total": 3,
+        "verified_at": "2026-08-21T16:22:53.505Z",
+        "commit_sha": "63d35340a525bde0e6581602647d70cfd4dd5b8c",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/63d35340a525bde0e6581602647d70cfd4dd5b8c",
+        "commit_at": "2026-08-21T13:55:56Z",
+        "points_awarded": 50,
+        "outstanding": []
+      }
+    },
+    {
+      "id": "STORY-005",
+      "release": "r2",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given supply chain data, when the system analyzes it, then it should detect anomalies and risks.",
+          "passed": true
+        },
+        {
+          "text": "Given an anomaly detection failure, when the system identifies it, then it should log the error and notify the user.",
+          "passed": true
+        },
+        {
+          "text": "Trust: The system logs all detected anomalies and risks with timestamps and severity levels.",
+          "passed": true
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "in_progress",
+        "criteria_passed": 3,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": []
+      }
+    },
+    {
+      "id": "STORY-006",
+      "release": "r2",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given AI agent outputs, when the system processes them, then it should generate actionable recommendations.",
+          "passed": false
+        },
+        {
+          "text": "Given conflicting agent outputs, when the system generates recommendations, then it should highlight the conflicts.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system logs all recommendations with timestamps and supporting data.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "in_progress",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given AI agent outputs, when the system processes them, then it should generate actionable recommendations.",
+          "Given conflicting agent outputs, when the system generates recommendations, then it should highlight the conflicts.",
+          "Trust: The system logs all recommendations with timestamps and supporting data."
+        ]
+      }
+    },
+    {
+      "id": "STORY-007",
+      "release": "r3",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a supply chain issue, when the system analyzes it, then it should provide a root cause analysis.",
+          "passed": false
+        },
+        {
+          "text": "Given insufficient data for analysis, when the system attempts root cause analysis, then it should notify the user of limitations.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system logs all root cause analyses with timestamps and confidence levels.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "in_progress",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a supply chain issue, when the system analyzes it, then it should provide a root cause analysis.",
+          "Given insufficient data for analysis, when the system attempts root cause analysis, then it should notify the user of limitations.",
+          "Trust: The system logs all root cause analyses with timestamps and confidence levels."
+        ]
+      }
+    },
+    {
+      "id": "STORY-008",
+      "release": "r3",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a scenario input, when the system simulates it, then it should provide impact assessments.",
+          "passed": false
+        },
+        {
+          "text": "Given invalid scenario parameters, when the system attempts simulation, then it should notify the user of errors.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system logs all scenario simulations with timestamps and input parameters.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "in_progress",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a scenario input, when the system simulates it, then it should provide impact assessments.",
+          "Given invalid scenario parameters, when the system attempts simulation, then it should notify the user of errors.",
+          "Trust: The system logs all scenario simulations with timestamps and input parameters."
+        ]
+      }
+    },
+    {
+      "id": "STORY-009",
+      "release": "r4",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given supply chain data, when the system processes it, then it should display key metrics on the dashboard.",
+          "passed": false
+        },
+        {
+          "text": "Given data processing errors, when the system updates the dashboard, then it should notify the user of issues.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system logs all dashboard updates with timestamps and data sources.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "in_progress",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given supply chain data, when the system processes it, then it should display key metrics on the dashboard.",
+          "Given data processing errors, when the system updates the dashboard, then it should notify the user of issues.",
+          "Trust: The system logs all dashboard updates with timestamps and data sources."
+        ]
+      }
+    },
+    {
+      "id": "STORY-010",
+      "release": "r4",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a user query, when the system processes it, then it should provide a relevant response via chat.",
+          "passed": false
+        },
+        {
+          "text": "Given an unsupported query, when the system processes it, then it should notify the user of limitations.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system logs all chat interactions with timestamps and query details.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "in_progress",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a user query, when the system processes it, then it should provide a relevant response via chat.",
+          "Given an unsupported query, when the system processes it, then it should notify the user of limitations.",
+          "Trust: The system logs all chat interactions with timestamps and query details."
+        ]
+      }
+    },
+    {
+      "id": "STORY-011",
+      "release": "r0",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given data is processed, When the same data is reprocessed, Then the system ensures no duplicate entries",
+          "passed": true
+        },
+        {
+          "text": "Given data processing occurs, When an error is detected, Then the system logs the error with details",
+          "passed": true
+        },
+        {
+          "text": "Trust: Given data processing, Then an audit trail is created for each transaction",
+          "passed": true
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "verified",
+        "criteria_passed": 3,
+        "criteria_total": 3,
+        "verified_at": "2026-08-20T15:49:04.682Z",
+        "commit_sha": "b86f2c0a6b335a1a800023daf641c89dfc3c1cd7",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/b86f2c0a6b335a1a800023daf641c89dfc3c1cd7",
+        "commit_at": "2026-08-20T15:07:03Z",
+        "points_awarded": 50,
+        "outstanding": []
+      }
+    },
+    {
+      "id": "STORY-012",
+      "release": "r1",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given raw data inputs, When processed through the model, Then the system provides observations",
+          "passed": true
+        },
+        {
+          "text": "Given observations, When analyzed, Then the system provides understanding insights",
+          "passed": true
+        },
+        {
+          "text": "Trust: Given model execution, Then an audit trail of model stages is maintained",
+          "passed": true
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "verified",
+        "criteria_passed": 3,
+        "criteria_total": 3,
+        "verified_at": "2026-08-21T17:40:49.571Z",
+        "commit_sha": "1c09bbda970a31ac6c5df32d006f31085a593489",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/1c09bbda970a31ac6c5df32d006f31085a593489",
+        "commit_at": "2026-08-21T16:46:27Z",
+        "points_awarded": 50,
+        "outstanding": []
+      }
+    },
+    {
+      "id": "STORY-013",
+      "release": "r2",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given supplier data, When evaluated, Then the system generates a Supplier Risk Score",
+          "passed": false
+        },
+        {
+          "text": "Given unreliable supplier data, When processed, Then the system flags the supplier for review",
+          "passed": false
+        },
+        {
+          "text": "Trust: Given supplier evaluation, Then an audit trail of the evaluation process is recorded",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "in_progress",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given supplier data, When evaluated, Then the system generates a Supplier Risk Score",
+          "Given unreliable supplier data, When processed, Then the system flags the supplier for review",
+          "Trust: Given supplier evaluation, Then an audit trail of the evaluation process is recorded"
+        ]
+      }
+    },
+    {
+      "id": "STORY-014",
+      "release": "r3",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given shipment data, When analyzed, Then the system identifies delay patterns",
+          "passed": false
+        },
+        {
+          "text": "Given shipment delays, When costs are calculated, Then the system provides cost analysis",
+          "passed": false
+        },
+        {
+          "text": "Trust: Given shipment analysis, Then an audit trail of delay analysis is maintained",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "in_progress",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given shipment data, When analyzed, Then the system identifies delay patterns",
+          "Given shipment delays, When costs are calculated, Then the system provides cost analysis",
+          "Trust: Given shipment analysis, Then an audit trail of delay analysis is maintained"
+        ]
+      }
+    },
+    {
+      "id": "STORY-015",
+      "release": "r3",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given data inputs, When quality checks are performed, Then the system provides a Data Quality Score",
+          "passed": false
+        },
+        {
+          "text": "Given poor data quality, When detected, Then the system alerts the data steward",
+          "passed": false
+        },
+        {
+          "text": "Trust: Given data quality monitoring, Then an audit trail of quality checks is maintained",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "in_progress",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given data inputs, When quality checks are performed, Then the system provides a Data Quality Score",
+          "Given poor data quality, When detected, Then the system alerts the data steward",
+          "Trust: Given data quality monitoring, Then an audit trail of quality checks is maintained"
+        ]
+      }
+    }
   ]
 }
