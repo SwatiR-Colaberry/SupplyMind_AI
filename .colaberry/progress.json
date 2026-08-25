@@ -3,13 +3,13 @@
   "project": "SupplyMind AI",
   "totals": {
     "stories_total": 16,
-    "stories_verified": 7,
+    "stories_verified": 8,
     "stories_submitted": 0,
-    "stories_in_progress": 9,
+    "stories_in_progress": 8,
     "stories_not_started": 0,
     "criteria_total": 50,
     "criteria_passed": 23,
-    "points_awarded": 350
+    "points_awarded": 400
   },
   "stories": [
     {
@@ -213,14 +213,14 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "in_progress",
+        "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
+        "verified_at": "2026-08-25T16:57:49.000Z",
+        "commit_sha": "74346f0935520ec55022f19eb29b666ea4c2fd28",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/74346f0935520ec55022f19eb29b666ea4c2fd28",
+        "commit_at": "2026-08-25T12:00:42Z",
+        "points_awarded": 50,
         "outstanding": []
       }
     },
