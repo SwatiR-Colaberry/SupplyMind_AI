@@ -90,7 +90,22 @@ def _stage2_recommendation(agent_outputs: list[AgentResponse]) -> tuple[Coordina
     return run, response
 
 
-def _summarize(scenario: str, agent_outputs: list[AgentResponse], run: CoordinationRun, response) -> dict:
+def _stage2_failure_reason(run: CoordinationRun) -> str | None:
+    # A stage-2 CoordinationResult can fail (timeout, an unhandled
+    # exception, a response that never validates) without the
+    # Orchestrator itself crashing - run.crash_error stays None and
+    # run.results stays non-empty in that case, so this has to look at
+    # the individual result's own error, not just the two orchestrator-
+    # level signals.
+    if run.crash_error is not None:
+        return run.crash_error
+    failed = [r for r in run.results if r.outcome == "failure"]
+    return failed[0].error if failed else None
+
+
+def _summarize(
+    scenario: str, agent_outputs: list[AgentResponse], run: CoordinationRun, response: AgentResponse | None
+) -> dict:
     succeeded = response is not None and response.status == "ok"
     return {
         "scenario": scenario,
@@ -101,7 +116,7 @@ def _summarize(scenario: str, agent_outputs: list[AgentResponse], run: Coordinat
         "recommendation": response.recommendation if response else None,
         "confidence": response.confidence if response else None,
         "conflict_detected": bool(succeeded and "CONFLICTS DETECTED" in (response.recommendation or "")),
-        "error": (response.error if response else None) or (run.crash_error if not run.results else None),
+        "error": (response.error if response else None) or _stage2_failure_reason(run),
     }
 
 
@@ -137,19 +152,20 @@ def _conflict_scenario() -> dict:
             "lead_time_days": 10.0,
         }
     ]
-    # current_stock=60.0 with daily_demand_rate=5.0 => 12 days of supply,
-    # between 1x and 1.5x the 10-day lead time => "medium", not "low".
-    # RiskDetectionAgent's risk_score deliberately drops "low" stockout
-    # findings entirely (a "low" stockout risk contributes nothing to the
-    # unified score - see risk_detection/risk_score.py's
-    # STOCKOUT_RISK_POINTS), so a "low"-vs-"critical" pair here would
-    # silently produce no finding at all from RiskDetectionAgent and no
-    # conflict would be detected - "medium" is the mildest severity that
-    # still shows up as a finding from both agents.
+    # current_stock=100.0 with daily_demand_rate=5.0 => 20 days of supply,
+    # >= 1.5x the 10-day lead time => "low" - the starkest possible
+    # disagreement against the fresh snapshot's "critical" read.
+    # RiskDetectionAgent builds its findings directly from each detector's
+    # own output (agents/risk_detection_agent.py's _findings_from_signals),
+    # not from risk_score.contributions, which deliberately drops any
+    # zero-point stockout assessment (every "low"); see PROGRESS.md's
+    # STORY-006 bug-fix entry for why that distinction matters here -
+    # findings must include "low" so a genuinely critical-vs-low
+    # disagreement is still visible to RecommendationAgent.
     stale_snapshot = [
         {
             "sku": "SKU-CONFLICT",
-            "current_stock": 60.0,
+            "current_stock": 100.0,
             "safety_stock": 20.0,
             "daily_demand_rate": 5.0,
             "lead_time_days": 10.0,

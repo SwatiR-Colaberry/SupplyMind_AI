@@ -53,31 +53,49 @@ from risk_detection.anomaly_detection import (
     detect_demand_spikes,
     detect_supplier_delays,
 )
-from risk_detection.risk_score import RiskContribution, SupplyChainRiskScore, compute_risk_score
+from risk_detection.risk_score import SupplyChainRiskScore, compute_risk_score
 
 logger = get_logger()
 
 DEFAULT_DATE_FIELD = "order_date"
 DEFAULT_QUANTITY_FIELD = "quantity"
 
-# Maps each RiskContribution.source (this agent's own internal signal
-# taxonomy) to AgentFinding.subject_kind (the shared, cross-agent
-# vocabulary STORY-006's RecommendationAgent compares subjects against -
-# e.g. lining this agent's per-SKU stockout findings up against
-# StockoutRiskAgent's own).
-_SUBJECT_KIND_BY_SOURCE = {
-    "demand_anomaly": "period",
-    "supplier_delay": "po",
-    "stockout_risk": "sku",
-}
 
+def _findings_from_signals(
+    demand_anomalies: list[DemandAnomaly],
+    supplier_delays: list[SupplierDelayAnomaly],
+    stockout_assessments: list[StockoutRiskAssessment],
+) -> list[AgentFinding]:
+    """Build AgentFindings straight from each detector's own output, not from risk_score.contributions.
 
-def _finding_from_contribution(contribution: RiskContribution) -> AgentFinding:
-    return AgentFinding(
-        subject=contribution.identifier,
-        subject_kind=_SUBJECT_KIND_BY_SOURCE[contribution.source],
-        severity=contribution.severity,
-        detail=contribution.detail,
+    risk_score.contributions (STORY-005's own scoring input) deliberately
+    drops any stockout assessment with zero points - i.e. every "low" risk
+    SKU - since "a 'low' stockout risk contributes nothing to the unified
+    score" (risk_detection/risk_score.py). That's correct for the *score*,
+    but wrong for *findings*: STORY-006's RecommendationAgent lines up
+    findings by subject to detect cross-agent disagreement, and a SKU
+    StockoutRiskAgent calls "critical" needs a matching (or disagreeing)
+    finding from this agent even when this agent's own read is "low" -
+    dropping it would silently hide exactly the disagreement STORY-006 is
+    supposed to surface. Demand/supplier severities have no such gap
+    (DemandAnomaly/SupplierDelayAnomaly are only ever medium/high/critical
+    to begin with - detect_demand_spikes/detect_supplier_delays already
+    exclude anything below their z-score threshold), so only the stockout
+    source actually needed this.
+    """
+    return (
+        [
+            AgentFinding(subject=a.period, subject_kind="period", severity=a.severity, detail=a.detail)
+            for a in demand_anomalies
+        ]
+        + [
+            AgentFinding(subject=d.po_id, subject_kind="po", severity=d.severity, detail=d.detail)
+            for d in supplier_delays
+        ]
+        + [
+            AgentFinding(subject=a.sku, subject_kind="sku", severity=a.risk_level, detail=a.detail)
+            for a in stockout_assessments
+        ]
     )
 
 
@@ -150,7 +168,7 @@ class RiskDetectionAgent:
         )
 
         notes = demand_notes + delivery_notes + inventory_notes
-        findings = [_finding_from_contribution(c) for c in risk_score.contributions]
+        findings = _findings_from_signals(demand_anomalies, supplier_delays, stockout_assessments)
         return AgentResponse(
             agent_name=self.name,
             status="ok",

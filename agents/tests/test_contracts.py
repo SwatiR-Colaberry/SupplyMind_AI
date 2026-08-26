@@ -61,6 +61,37 @@ def test_validate_response_rejects_error_with_no_message():
         validate_response(response)
 
 
+def test_validate_response_rejects_a_non_agentfinding_entry_in_findings():
+    response = AgentResponse(agent_name="a", status="ok", recommendation="Reorder", findings=["not-a-finding"])
+
+    with pytest.raises(ResponseValidationError, match="AgentFinding objects"):
+        validate_response(response)
+
+
+def test_validate_response_rejects_a_finding_with_invalid_severity():
+    finding = AgentFinding(subject="SKU-1", subject_kind="sku", severity="urgent", detail="short on stock")
+    response = AgentResponse(agent_name="a", status="ok", recommendation="Reorder", findings=[finding])
+
+    with pytest.raises(ResponseValidationError, match="severity"):
+        validate_response(response)
+
+
+def test_validate_response_rejects_a_finding_with_invalid_subject_kind():
+    finding = AgentFinding(subject="SKU-1", subject_kind="widget", severity="high", detail="short on stock")
+    response = AgentResponse(agent_name="a", status="ok", recommendation="Reorder", findings=[finding])
+
+    with pytest.raises(ResponseValidationError, match="subject_kind"):
+        validate_response(response)
+
+
+def test_validate_response_rejects_a_finding_with_empty_subject_or_detail():
+    finding = AgentFinding(subject="", subject_kind="sku", severity="high", detail="short on stock")
+    response = AgentResponse(agent_name="a", status="ok", recommendation="Reorder", findings=[finding])
+
+    with pytest.raises(ResponseValidationError, match="subject"):
+        validate_response(response)
+
+
 def test_validate_response_rejects_unrecognized_status():
     # AgentResponseStatus is typed as Literal["ok", "error"], but Python
     # doesn't enforce that at runtime - an agent implementation could

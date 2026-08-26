@@ -99,6 +99,24 @@ def test_run_findings_expose_the_subject_kind_matching_each_signal_type():
     assert by_subject["SKU-1"].severity == "critical"
 
 
+def test_run_findings_include_a_low_risk_sku_even_though_it_contributes_nothing_to_the_score():
+    # Regression test: risk_score.contributions drops any stockout
+    # assessment with zero points (STORY-005's own "a low stockout risk
+    # contributes nothing to the unified score" rule), but findings must
+    # still include it - otherwise a SKU StockoutRiskAgent calls
+    # "critical" would have no matching low-severity finding from this
+    # agent to disagree with, and RecommendationAgent's conflict
+    # detection would silently miss exactly that disagreement.
+    agent = RiskDetectionAgent()
+    low_risk_row = _inventory_row(current_stock=100.0)  # 20 days of supply vs a 10-day lead time => "low"
+
+    response = agent.run(AgentQuery(text="detect risk", context={"inventory_rows": [low_risk_row]}))
+
+    assert response.status == "ok"
+    by_subject = {f.subject: f for f in response.findings}
+    assert by_subject["SKU-1"].severity == "low"
+
+
 def test_run_findings_are_empty_for_a_low_severity_score_with_no_contributions():
     agent = RiskDetectionAgent()
     flat_history = [{"order_date": f"2025-{m:02d}-01", "quantity": 100} for m in range(1, 8)]

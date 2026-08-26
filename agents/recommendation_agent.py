@@ -82,14 +82,25 @@ class RecommendationAgent:
         so this agent does not duplicate that handling.
         """
         raw_outputs: Any = query.context.get("agent_outputs")
+        try:
+            # Materialized once, not iterated twice - raw_outputs may be a
+            # generator/iterator (e.g. a caller writing a genexpr instead
+            # of a list comp), which the old two-pass validate-then-use
+            # code silently exhausted on the first pass, making every
+            # agent output vanish before synthesis ever saw them.
+            outputs: list[Any] = list(raw_outputs) if raw_outputs else []
+        except TypeError:
+            return self._error_response(
+                "agent_outputs must be an iterable of AgentResponse objects", error_class="ValueError"
+            )
 
-        if raw_outputs and not all(isinstance(o, AgentResponse) for o in raw_outputs):
+        if not all(isinstance(o, AgentResponse) for o in outputs):
             return self._error_response(
                 "agent_outputs must contain only AgentResponse objects", error_class="ValueError"
             )
 
         try:
-            result = synthesize_recommendations(raw_outputs or [])
+            result = synthesize_recommendations(outputs)
         except RecommendationError as exc:
             return self._error_response(str(exc), error_class="RecommendationError")
 

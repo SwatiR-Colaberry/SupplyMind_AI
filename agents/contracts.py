@@ -14,6 +14,12 @@ AgentResponseStatus = Literal["ok", "error"]
 FindingSubjectKind = Literal["sku", "po", "period"]
 FindingSeverity = Literal["low", "medium", "high", "critical"]
 
+# Literal isn't enforced at runtime, so validate_response() checks
+# membership against these explicitly - same reasoning it already applies
+# to AgentResponseStatus rather than trusting the type hint alone.
+_VALID_SUBJECT_KINDS = {"sku", "po", "period"}
+_VALID_SEVERITIES = {"low", "medium", "high", "critical"}
+
 
 @dataclass(frozen=True)
 class AgentQuery:
@@ -59,12 +65,26 @@ def validate_response(response: Any) -> AgentResponse:
 
     Handles: wrong type, an unrecognized status value, an "ok" status
     with no usable recommendation, an out-of-range confidence, an
-    "error" status with no error message. Does not handle whether a
-    recommendation is factually correct - that is a concern for the
-    agent itself, not the contract layer.
+    "error" status with no error message, and - regardless of status - a
+    malformed entry in findings (wrong type, an empty subject/detail, or
+    a subject_kind/severity outside the values FindingSubjectKind/
+    FindingSeverity actually allow). Does not handle whether a
+    recommendation or a finding is factually correct - that is a concern
+    for the agent itself, not the contract layer.
     """
     if not isinstance(response, AgentResponse):
         raise ResponseValidationError(f"expected AgentResponse, got {type(response).__name__}")
+    for finding in response.findings:
+        if not isinstance(finding, AgentFinding):
+            raise ResponseValidationError(f"findings must contain only AgentFinding objects, got {type(finding).__name__}")
+        if not finding.subject or not finding.subject.strip():
+            raise ResponseValidationError("finding missing a non-empty subject")
+        if finding.subject_kind not in _VALID_SUBJECT_KINDS:
+            raise ResponseValidationError(f"finding subject_kind '{finding.subject_kind}' not in {sorted(_VALID_SUBJECT_KINDS)}")
+        if finding.severity not in _VALID_SEVERITIES:
+            raise ResponseValidationError(f"finding severity '{finding.severity}' not in {sorted(_VALID_SEVERITIES)}")
+        if not finding.detail or not finding.detail.strip():
+            raise ResponseValidationError("finding missing a non-empty detail")
     if response.status == "ok":
         if not response.recommendation or not response.recommendation.strip():
             raise ResponseValidationError("ok response missing a non-empty recommendation")
