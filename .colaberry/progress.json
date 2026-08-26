@@ -3,13 +3,13 @@
   "project": "SupplyMind AI",
   "totals": {
     "stories_total": 16,
-    "stories_verified": 8,
+    "stories_verified": 9,
     "stories_submitted": 0,
-    "stories_in_progress": 8,
+    "stories_in_progress": 7,
     "stories_not_started": 0,
     "criteria_total": 50,
-    "criteria_passed": 23,
-    "points_awarded": 400
+    "criteria_passed": 26,
+    "points_awarded": 450
   },
   "stories": [
     {
@@ -231,15 +231,15 @@
       "criteria": [
         {
           "text": "Given AI agent outputs, when the system processes them, then it should generate actionable recommendations.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given conflicting agent outputs, when the system generates recommendations, then it should highlight the conflicts.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system logs all recommendations with timestamps and supporting data.",
-          "passed": false
+          "passed": true
         }
       ],
       "files_touched": [],
@@ -247,19 +247,15 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given AI agent outputs, when the system processes them, then it should generate actionable recommendations.",
-          "Given conflicting agent outputs, when the system generates recommendations, then it should highlight the conflicts.",
-          "Trust: The system logs all recommendations with timestamps and supporting data."
-        ]
+        "verified_at": "2026-08-26T16:57:19.000Z",
+        "commit_sha": "dd3ade2963cae14e684c51745d71fdc1f0f702d1",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/dd3ade2963cae14e684c51745d71fdc1f0f702d1",
+        "commit_at": "2026-08-26T14:05:58Z",
+        "points_awarded": 50,
+        "outstanding": []
       }
     },
     {
