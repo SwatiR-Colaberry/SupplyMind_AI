@@ -39,7 +39,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from agents.contracts import AgentQuery, AgentResponse
+from agents.contracts import AgentFinding, AgentQuery, AgentResponse
 from agents.logging_setup import get_logger
 from forecasting.aggregation import AggregationError, aggregate_monthly_demand
 from inventory_risk.data_quality import REQUIRED_FIELDS, assess_inventory_data_quality
@@ -53,12 +53,32 @@ from risk_detection.anomaly_detection import (
     detect_demand_spikes,
     detect_supplier_delays,
 )
-from risk_detection.risk_score import SupplyChainRiskScore, compute_risk_score
+from risk_detection.risk_score import RiskContribution, SupplyChainRiskScore, compute_risk_score
 
 logger = get_logger()
 
 DEFAULT_DATE_FIELD = "order_date"
 DEFAULT_QUANTITY_FIELD = "quantity"
+
+# Maps each RiskContribution.source (this agent's own internal signal
+# taxonomy) to AgentFinding.subject_kind (the shared, cross-agent
+# vocabulary STORY-006's RecommendationAgent compares subjects against -
+# e.g. lining this agent's per-SKU stockout findings up against
+# StockoutRiskAgent's own).
+_SUBJECT_KIND_BY_SOURCE = {
+    "demand_anomaly": "period",
+    "supplier_delay": "po",
+    "stockout_risk": "sku",
+}
+
+
+def _finding_from_contribution(contribution: RiskContribution) -> AgentFinding:
+    return AgentFinding(
+        subject=contribution.identifier,
+        subject_kind=_SUBJECT_KIND_BY_SOURCE[contribution.source],
+        severity=contribution.severity,
+        detail=contribution.detail,
+    )
 
 
 def _finite_or_none(value: float) -> float | None:
@@ -130,11 +150,13 @@ class RiskDetectionAgent:
         )
 
         notes = demand_notes + delivery_notes + inventory_notes
+        findings = [_finding_from_contribution(c) for c in risk_score.contributions]
         return AgentResponse(
             agent_name=self.name,
             status="ok",
             recommendation=self._format_recommendation(risk_score, notes),
             confidence=self._confidence(notes),
+            findings=findings,
         )
 
     def _detect_demand_anomalies(self, context: dict[str, Any]) -> tuple[list[DemandAnomaly], list[str]]:

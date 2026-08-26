@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 AgentResponseStatus = Literal["ok", "error"]
+FindingSubjectKind = Literal["sku", "po", "period"]
+FindingSeverity = Literal["low", "medium", "high", "critical"]
 
 
 @dataclass(frozen=True)
@@ -20,12 +22,32 @@ class AgentQuery:
 
 
 @dataclass(frozen=True)
+class AgentFinding:
+    """One atomic, per-subject claim an agent can attach to its AgentResponse.
+
+    Exists so a downstream agent (STORY-006's RecommendationAgent) can
+    line up findings from different agents that concern the same
+    subject (e.g. the same SKU) and detect precise disagreement, instead
+    of only being able to compare agents' free-text recommendations.
+    Optional - an agent with no natural per-subject breakdown (e.g.
+    DemandForecastingAgent, which only forecasts an aggregate total) has
+    nothing to add here and leaves AgentResponse.findings empty.
+    """
+
+    subject: str  # e.g. "SKU-123", "PO-1003", "2025-07"
+    subject_kind: FindingSubjectKind
+    severity: FindingSeverity
+    detail: str
+
+
+@dataclass(frozen=True)
 class AgentResponse:
     agent_name: str
     status: AgentResponseStatus
     recommendation: str | None = None
     confidence: float | None = None
     error: str | None = None
+    findings: list[AgentFinding] = field(default_factory=list)
 
 
 class ResponseValidationError(ValueError):

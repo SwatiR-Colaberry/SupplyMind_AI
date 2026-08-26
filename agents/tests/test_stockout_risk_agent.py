@@ -232,6 +232,45 @@ def test_run_assesses_rows_with_decimal_values_from_a_real_database(monkeypatch)
     assert "critical" in response.recommendation
 
 
+def test_run_findings_expose_one_per_assessed_sku_matching_the_recommendation():
+    agent = StockoutRiskAgent()
+    rows = [
+        _row(sku="SKU-LOW", current_stock=100.0, safety_stock=5.0, daily_demand_rate=1.0, lead_time_days=5.0),
+        _row(sku="SKU-CRITICAL", current_stock=2.0, safety_stock=20.0),
+    ]
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert {f.subject for f in response.findings} == {"SKU-LOW", "SKU-CRITICAL"}
+    assert all(f.subject_kind == "sku" for f in response.findings)
+    by_subject = {f.subject: f for f in response.findings}
+    assert by_subject["SKU-CRITICAL"].severity == "critical"
+    assert by_subject["SKU-CRITICAL"].detail  # same detail text the recommendation already surfaces
+
+
+def test_run_findings_exclude_skus_flagged_for_review_or_prediction_error(monkeypatch):
+    def _flaky_assess(position):
+        if position.sku == "SKU-BAD":
+            raise RiskModelError("simulated model prediction error")
+        return assess_stockout_risk(position)
+
+    monkeypatch.setattr(agent_module, "assess_stockout_risk", _flaky_assess)
+    agent = StockoutRiskAgent()
+    rows = [_row(sku="SKU-BAD"), _row(sku="SKU-GOOD")]
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert {f.subject for f in response.findings} == {"SKU-GOOD"}
+
+
+def test_run_error_response_has_no_findings():
+    agent = StockoutRiskAgent()
+
+    response = agent.run(AgentQuery(text="assess", context={}))
+
+    assert response.findings == []
+
+
 def test_run_logs_a_prediction_for_every_successfully_assessed_sku(monkeypatch):
     recorder = _RecordingLogger()
     monkeypatch.setattr(agent_module, "logger", recorder)

@@ -1,0 +1,13 @@
+# Root dependency manifest for SupplyMind_AI (Python).
+# Runtime deps used by data_integration/ (PostgreSQL + Google Sheets, per REQ-018).
+psycopg2-binary==2.9.12
+gspread==6.2.1
+google-auth==2.50.0
+
+# Test tooling.
+pytest==8.4.2
+
+# Dev/test-only: self-contained local PostgreSQL for scripts/local_test_db.py.
+# Never imported by data_integration/, forecasting/, inventory_risk/,
+# risk_detection/, or agents/ - see PROGRESS.md's STORY-005 follow-up entry.
+pgserver==0.1.4

@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from agents.contracts import AgentQuery, AgentResponse
+from agents.contracts import AgentFinding, AgentQuery, AgentResponse
 from agents.logging_setup import get_logger
 from inventory_risk.data_quality import REQUIRED_FIELDS, FlaggedRow, assess_inventory_data_quality
 from inventory_risk.risk_model import InventoryPosition, RiskModelError, StockoutRiskAssessment, assess_stockout_risk
@@ -127,11 +127,16 @@ class StockoutRiskAgent:
             return self._error_response(detail, error_class="RiskModelError")
 
         mean_confidence = sum(a.confidence for a in assessments) / len(assessments)
+        findings = [
+            AgentFinding(subject=a.sku, subject_kind="sku", severity=a.risk_level, detail=a.detail)
+            for a in assessments
+        ]
         return AgentResponse(
             agent_name=self.name,
             status="ok",
             recommendation=self._format_recommendation(assessments, flagged_notes, prediction_errors),
             confidence=mean_confidence,
+            findings=findings,
         )
 
     def _error_response(self, message: str, error_class: str) -> AgentResponse:

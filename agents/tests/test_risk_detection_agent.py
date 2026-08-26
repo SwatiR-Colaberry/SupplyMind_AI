@@ -79,6 +79,44 @@ def test_run_works_with_only_one_data_source_provided():
     assert "PO-1" in response.recommendation
 
 
+def test_run_findings_expose_the_subject_kind_matching_each_signal_type():
+    agent = RiskDetectionAgent()
+    context = {
+        "demand_history": _demand_rows_with_spike(),
+        "delivery_rows": [_delivery_row()],
+        "inventory_rows": [_inventory_row()],
+    }
+
+    response = agent.run(AgentQuery(text="detect risk", context=context))
+
+    by_subject = {f.subject: f for f in response.findings}
+    assert by_subject["2025-07"].subject_kind == "period"
+    assert by_subject["PO-1"].subject_kind == "po"
+    assert by_subject["SKU-1"].subject_kind == "sku"
+    # This SKU is the same stockout signal StockoutRiskAgent would report given
+    # the same inventory row - RecommendationAgent lines these two agents up by
+    # exactly this subject/severity pair to detect a genuine cross-agent conflict.
+    assert by_subject["SKU-1"].severity == "critical"
+
+
+def test_run_findings_are_empty_for_a_low_severity_score_with_no_contributions():
+    agent = RiskDetectionAgent()
+    flat_history = [{"order_date": f"2025-{m:02d}-01", "quantity": 100} for m in range(1, 8)]
+
+    response = agent.run(AgentQuery(text="detect risk", context={"demand_history": flat_history}))
+
+    assert response.status == "ok"
+    assert response.findings == []
+
+
+def test_run_error_response_has_no_findings():
+    agent = RiskDetectionAgent()
+
+    response = agent.run(AgentQuery(text="detect risk", context={}))
+
+    assert response.findings == []
+
+
 def test_run_degrades_gracefully_when_demand_history_is_too_short_for_detection():
     agent = RiskDetectionAgent()
     context = {

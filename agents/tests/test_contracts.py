@@ -1,12 +1,32 @@
 import pytest
 
-from agents.contracts import AgentResponse, ResponseValidationError, validate_response
+from agents.contracts import AgentFinding, AgentResponse, ResponseValidationError, validate_response
 
 
 def test_validate_response_accepts_a_well_formed_ok_response():
     response = AgentResponse(agent_name="a", status="ok", recommendation="Reorder now", confidence=0.7)
 
     assert validate_response(response) is response
+
+
+def test_agent_response_findings_defaults_to_empty_list():
+    # An agent written before AgentFinding existed (or with nothing
+    # per-subject to report, e.g. DemandForecastingAgent) must still
+    # construct a valid AgentResponse without knowing about `findings`.
+    response = AgentResponse(agent_name="a", status="ok", recommendation="Reorder now", confidence=0.7)
+
+    assert validate_response(response) is response
+    assert response.findings == []
+
+
+def test_agent_response_accepts_explicit_findings():
+    finding = AgentFinding(subject="SKU-123", subject_kind="sku", severity="high", detail="days_of_supply=2.1")
+    response = AgentResponse(
+        agent_name="a", status="ok", recommendation="Reorder SKU-123", confidence=0.7, findings=[finding]
+    )
+
+    assert validate_response(response) is response
+    assert response.findings == [finding]
 
 
 def test_validate_response_accepts_a_well_formed_error_response():
