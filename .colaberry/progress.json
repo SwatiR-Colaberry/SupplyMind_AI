@@ -3,13 +3,13 @@
   "project": "SupplyMind AI",
   "totals": {
     "stories_total": 16,
-    "stories_verified": 9,
+    "stories_verified": 10,
     "stories_submitted": 0,
-    "stories_in_progress": 7,
+    "stories_in_progress": 6,
     "stories_not_started": 0,
     "criteria_total": 50,
-    "criteria_passed": 26,
-    "points_awarded": 450
+    "criteria_passed": 29,
+    "points_awarded": 500
   },
   "stories": [
     {
@@ -485,15 +485,15 @@
       "criteria": [
         {
           "text": "Given supplier data, When evaluated, Then the system generates a Supplier Risk Score",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given unreliable supplier data, When processed, Then the system flags the supplier for review",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: Given supplier evaluation, Then an audit trail of the evaluation process is recorded",
-          "passed": false
+          "passed": true
         }
       ],
       "files_touched": [],
@@ -501,19 +501,15 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given supplier data, When evaluated, Then the system generates a Supplier Risk Score",
-          "Given unreliable supplier data, When processed, Then the system flags the supplier for review",
-          "Trust: Given supplier evaluation, Then an audit trail of the evaluation process is recorded"
-        ]
+        "verified_at": "2026-09-01T11:57:30.814477Z",
+        "commit_sha": "3e0b9c58d75cc3c77d0df3dd5528bb24b0c9f148",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/3e0b9c58d75cc3c77d0df3dd5528bb24b0c9f148",
+        "commit_at": "2026-09-01T11:57:00Z",
+        "points_awarded": 50,
+        "outstanding": []
       }
     },
     {
