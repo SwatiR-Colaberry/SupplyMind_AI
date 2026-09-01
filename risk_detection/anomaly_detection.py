@@ -194,12 +194,19 @@ class SupplierDelayReport:
     warnings: list[str] = field(default_factory=list)
 
 
-def _parse_date(value: Any) -> date | None:
+def parse_delivery_date(value: Any) -> date | None:
     """Accept a "YYYY-MM-DD" string or a native date/datetime - a
     connector reading from a real date/timestamp column would hand back
     the latter, not a string, so both are treated as valid input rather
     than only the string form. Any other type or an unparseable string
-    returns None so the caller can flag the row rather than raise."""
+    returns None so the caller can flag the row rather than raise.
+
+    Public (STORY-013) rather than module-private: supplier_evaluation
+    parses the same delivery rows to compute per-supplier reliability, and
+    two copies of this rule could silently drift - the same row would then
+    be valid to one module and invalid to the other, so a delivery counted
+    as on-time by one would be dropped as unparseable by the other.
+    """
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -226,9 +233,9 @@ def _delivery_row_issues(row: dict[str, Any]) -> list[str]:
         return [f"missing field(s): {', '.join(missing)}"]
 
     issues: list[str] = []
-    if _parse_date(row["expected_date"]) is None:
+    if parse_delivery_date(row["expected_date"]) is None:
         issues.append(f"expected_date is not a valid date: {row['expected_date']!r}")
-    if _parse_date(row["actual_date"]) is None:
+    if parse_delivery_date(row["actual_date"]) is None:
         issues.append(f"actual_date is not a valid date: {row['actual_date']!r}")
     return issues
 
@@ -269,8 +276,8 @@ def detect_supplier_delays(
             flagged_rows.append(FlaggedDeliveryRow(row=row, reasons=issues))
             continue
 
-        expected = _parse_date(row["expected_date"])
-        actual = _parse_date(row["actual_date"])
+        expected = parse_delivery_date(row["expected_date"])
+        actual = parse_delivery_date(row["actual_date"])
         delay_days = (actual - expected).days
         if delay_days < delay_threshold_days:
             continue
