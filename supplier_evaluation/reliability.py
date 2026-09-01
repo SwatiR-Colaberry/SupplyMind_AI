@@ -60,8 +60,10 @@ _DEFAULT_SEVERITY: RiskSeverity = "low"
 # A supplier scored "high" or "critical" (score >= the "high" bucket
 # floor) is unreliable enough to flag for review - this is what AC2
 # ("given unreliable supplier data ... flags the supplier for review")
-# means in score terms.
-FLAG_SCORE_THRESHOLD = 35.0
+# means in score terms. Looked up from _SCORE_SEVERITY_THRESHOLDS rather
+# than a second hardcoded 35.0, so it can't silently drift from the "high"
+# bucket floor it's meant to mirror if that table is ever retuned.
+FLAG_SCORE_THRESHOLD = dict((label, threshold) for threshold, label in _SCORE_SEVERITY_THRESHOLDS)["high"]
 
 # Logged assumption: below this many *valid* delivery records, a
 # supplier's on-time rate is too thin a sample to trust - one late
@@ -177,7 +179,13 @@ def _evaluate_one_supplier(
     delay_report = detect_supplier_delays(rows, delay_threshold_days=delay_threshold_days)
     valid_deliveries = len(rows) - len(delay_report.flagged_rows)
     late_count = len(delay_report.delays)
-    on_time_count = max(0, valid_deliveries - late_count)
+    # late_count <= valid_deliveries always holds: delay_report.delays is
+    # built only from rows that passed validation (excluded from
+    # flagged_rows), and detect_supplier_delays contributes at most one
+    # delay per row - so no max(0, ...) clamp is needed here; a negative
+    # value would mean a real double-counting bug worth seeing, not
+    # silently hiding.
+    on_time_count = valid_deliveries - late_count
     on_time_rate = (on_time_count / valid_deliveries) if valid_deliveries > 0 else None
     avg_delay_days = (sum(d.delay_days for d in delay_report.delays) / late_count) if late_count > 0 else 0.0
     max_delay_days = max((d.delay_days for d in delay_report.delays), default=0)

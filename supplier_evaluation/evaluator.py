@@ -11,13 +11,21 @@ Every supplier the evaluation produces a score for gets its own audit
 record, regardless of whether that supplier was flagged - "outcome" on an
 audit record means "did the evaluation process succeed for this
 supplier," not "is this supplier reliable" (that's flagged_for_review,
-a separate field). If evaluate_supplier_reliability() itself cannot run
-at all (a bad parameter, or an unexpected crash), a single run-level
-audit record is still written under a reserved supplier key - "Audit
-trail not recorded for evaluations" must not happen even when the
-evaluation process itself fails, mirroring intelligence/model.py's own
-"audit trail missing for model stages must not happen even when the
-pipeline itself has a bug" rule.
+a separate field). A run that produces zero per-supplier scores (no
+delivery data, or every row unattributable) still gets one run-level
+audit record instead of none, and if evaluate_supplier_reliability()
+itself cannot run at all (a bad parameter, or an unexpected crash), a
+run-level failure record is written the same way - "Audit trail not
+recorded for evaluations" must not happen for a completed run of any
+outcome, mirroring intelligence/model.py's own "audit trail missing for
+model stages must not happen even when the pipeline itself has a bug"
+rule. Run-level records use `supplier=None` (see audit_trail.py), not a
+sentinel string, so a real supplier name can never collide with one.
+
+If the audit store itself can't be written to (disk full, permissions),
+that failure is never silently swallowed, but it also never masks the
+more useful signal when the evaluation itself failed first - see
+_fail_run()'s handling.
 """
 
 from __future__ import annotations
@@ -26,12 +34,11 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from supplier_evaluation.audit_trail import SupplierEvaluationAuditStore
+from supplier_evaluation.audit_trail import SupplierEvaluationAuditStore, SupplierEvaluationAuditWriteError
 from supplier_evaluation.logging_setup import get_logger
 from supplier_evaluation.reliability import (
     DEFAULT_DELAY_THRESHOLD_DAYS,
     MIN_DELIVERIES_FOR_CONFIDENT_SCORE,
-    SupplierEvaluationError,
     SupplierRiskScore,
     evaluate_supplier_reliability,
 )
@@ -39,14 +46,6 @@ from supplier_evaluation.reliability import (
 logger = get_logger()
 
 EvaluationRunOutcome = Literal["success", "crashed"]
-
-# Reserved audit-trail supplier key for a run-level failure (the
-# evaluation process itself never produced any per-supplier scores) -
-# distinguishes "the evaluation didn't run at all" from an ordinary
-# supplier named e.g. "unknown". No real supplier value can collide with
-# it: reliability.py's _supplier_key() only ever returns a stripped,
-# non-empty string pulled from row data, never this literal.
-RUN_LEVEL_AUDIT_SUPPLIER = "__evaluation_run__"
 
 
 @dataclass
@@ -98,21 +97,20 @@ class SupplierEvaluator:
                 delay_threshold_days=delay_threshold_days,
                 min_deliveries_for_confidence=min_deliveries_for_confidence,
             )
-        except SupplierEvaluationError as exc:
-            return self._fail_run(evaluation_id, exc)
         except Exception as exc:  # noqa: BLE001 - deliberate: see module docstring
-            # An unexpected bug in the evaluation path must not leave the
-            # run with no audit trail at all - caught here, at the one
-            # orchestration boundary, the same way
-            # intelligence/model.py.IntelligenceModel.run() catches
-            # unexpected exceptions at its pipeline boundary. error_class
-            # carries the real exception type, not a generic label, so
-            # this still satisfies the Observability Framework's ban on
-            # logging a bare "Error" classification.
+            # Covers both the documented SupplierEvaluationError (a bad
+            # parameter) and any genuinely unexpected bug in the
+            # evaluation path - both must not leave the run with no audit
+            # trail at all, caught here at the one orchestration boundary,
+            # the same way intelligence/model.py.IntelligenceModel.run()
+            # catches unexpected exceptions at its pipeline boundary.
+            # error_class (set in _fail_run, from the real exception type)
+            # means this still satisfies the Observability Framework's ban
+            # on logging a bare "Error" classification.
             return self._fail_run(evaluation_id, exc)
 
         for score in report.scores:
-            self._audit_store.record(
+            write_error = self._try_record(
                 evaluation_id=evaluation_id,
                 supplier=score.supplier,
                 outcome="success",
@@ -121,6 +119,14 @@ class SupplierEvaluator:
                 flagged_for_review=score.flagged_for_review,
                 detail=score.explanation,
             )
+            if write_error is not None:
+                # The audit store itself is broken - retrying immediately
+                # would just raise again (infinite retry loops are
+                # prohibited), so the run is reported crashed rather than
+                # left with a misleadingly "successful" outcome and a
+                # silently incomplete audit trail for the remaining
+                # suppliers.
+                return SupplierEvaluationRun(evaluation_id=evaluation_id, crash_error=str(write_error))
             logger.info(
                 "supplier_evaluated",
                 extra={
@@ -135,6 +141,19 @@ class SupplierEvaluator:
                     },
                 },
             )
+
+        if not report.scores:
+            # No supplier was scoreable (no delivery data, or every row
+            # was unattributable) - the evaluation process still ran and
+            # completed, so it still needs an audit trace. Without this, a
+            # completed run with zero suppliers is indistinguishable from
+            # one that never ran at all.
+            reason = "; ".join(report.warnings) if report.warnings else "no supplier could be evaluated"
+            write_error = self._try_record(
+                evaluation_id=evaluation_id, supplier=None, outcome="success", detail=reason
+            )
+            if write_error is not None:
+                return SupplierEvaluationRun(evaluation_id=evaluation_id, crash_error=str(write_error))
 
         run = SupplierEvaluationRun(
             evaluation_id=evaluation_id,
@@ -156,6 +175,23 @@ class SupplierEvaluator:
         )
         return run
 
+    def _try_record(self, **kwargs: Any) -> SupplierEvaluationAuditWriteError | None:
+        try:
+            self._audit_store.record(**kwargs)
+            return None
+        except SupplierEvaluationAuditWriteError as exc:
+            logger.error(
+                "evaluation_audit_write_failed",
+                extra={
+                    "event": "evaluation_audit_write_failed",
+                    "outcome": "failure",
+                    "error_class": exc.__class__.__name__,
+                    "correlation_id": kwargs.get("evaluation_id"),
+                    "context": {"supplier": kwargs.get("supplier")},
+                },
+            )
+            return exc
+
     def _fail_run(self, evaluation_id: str, exc: Exception) -> SupplierEvaluationRun:
         logger.error(
             "evaluation_failed",
@@ -167,9 +203,15 @@ class SupplierEvaluator:
                 "context": {},
             },
         )
-        self._audit_store.record(
+        # If the audit write itself also fails here, _try_record already
+        # logs that separately - the *original* exc is still the more
+        # useful signal to hand back to the caller (it names the real
+        # root cause of the failed evaluation; a failed audit write on top
+        # of that is a second, already-logged problem), so it is never
+        # replaced or masked by an audit-store exception.
+        self._try_record(
             evaluation_id=evaluation_id,
-            supplier=RUN_LEVEL_AUDIT_SUPPLIER,
+            supplier=None,
             outcome="failure",
             detail=f"{exc.__class__.__name__}: {exc}",
         )

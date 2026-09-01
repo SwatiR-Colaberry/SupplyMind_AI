@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from supplier_evaluation.audit_trail import SupplierEvaluationAuditStore
-from supplier_evaluation.evaluator import RUN_LEVEL_AUDIT_SUPPLIER, SupplierEvaluator
+from supplier_evaluation.evaluator import SupplierEvaluator
 
 
 def _row(supplier, po_id, expected, actual):
@@ -67,7 +67,7 @@ def test_run_records_a_run_level_failure_entry_for_an_invalid_parameter(tmp_path
     assert run.scores == []
     records = store.records_for_evaluation("eval-1")
     assert len(records) == 1
-    assert records[0].supplier == RUN_LEVEL_AUDIT_SUPPLIER
+    assert records[0].supplier is None
     assert records[0].outcome == "failure"
 
 
@@ -88,7 +88,7 @@ def test_run_records_a_run_level_failure_entry_for_an_unexpected_crash(tmp_path)
     assert run.crash_error == "boom"
     records = store.records_for_evaluation("eval-1")
     assert len(records) == 1
-    assert records[0].supplier == RUN_LEVEL_AUDIT_SUPPLIER
+    assert records[0].supplier is None
     assert "RuntimeError" in records[0].detail
 
 
@@ -115,3 +115,87 @@ def test_flagged_suppliers_returns_only_scores_flagged_for_review(tmp_path):
     run = evaluator.run(rows, evaluation_id="eval-1")
 
     assert [s.supplier for s in run.flagged_suppliers] == ["Risky"]
+
+
+# --- regression coverage for the pre-push review fixes ---
+
+
+def test_run_leaves_a_run_level_audit_record_when_no_delivery_data_is_given(tmp_path):
+    # Regression: a "successful" run that finds zero scoreable suppliers
+    # (empty input) used to leave literally no audit record at all -
+    # indistinguishable from an evaluation that never ran, re-opening the
+    # "audit trail not recorded for evaluations" failure path this story
+    # exists to close.
+    store = SupplierEvaluationAuditStore(tmp_path / "audit.jsonl")
+    evaluator = SupplierEvaluator(store)
+
+    run = evaluator.run([], evaluation_id="eval-1")
+
+    assert run.outcome == "success"
+    assert run.scores == []
+    records = store.records_for_evaluation("eval-1")
+    assert len(records) == 1
+    assert records[0].supplier is None
+    assert records[0].outcome == "success"
+
+
+def test_run_leaves_a_run_level_audit_record_when_every_row_is_unattributable(tmp_path):
+    store = SupplierEvaluationAuditStore(tmp_path / "audit.jsonl")
+    evaluator = SupplierEvaluator(store)
+    rows = [{"po_id": "PO-1", "expected_date": "2025-01-01", "actual_date": "2025-01-01"}]  # no supplier
+
+    run = evaluator.run(rows, evaluation_id="eval-1")
+
+    assert run.outcome == "success"
+    assert run.scores == []
+    records = store.records_for_evaluation("eval-1")
+    assert len(records) == 1
+    assert records[0].supplier is None
+
+
+def test_a_real_supplier_named_like_the_old_sentinel_string_gets_its_own_record(tmp_path):
+    # Regression: an earlier design used a magic string
+    # ("__evaluation_run__") to mark a run-level record, which a real
+    # supplier could in principle be named. Run-level records now use
+    # supplier=None instead, so this name is just an ordinary supplier.
+    store = SupplierEvaluationAuditStore(tmp_path / "audit.jsonl")
+    evaluator = SupplierEvaluator(store)
+    rows = [_row("__evaluation_run__", "PO-1", "2025-01-01", "2025-01-01")]
+
+    run = evaluator.run(rows, evaluation_id="eval-1")
+
+    assert run.outcome == "success"
+    assert [s.supplier for s in run.scores] == ["__evaluation_run__"]
+    assert store.has_recorded("eval-1", "__evaluation_run__")
+
+
+def test_run_returns_a_crashed_result_instead_of_raising_when_the_audit_store_cannot_be_written(tmp_path):
+    # Regression: a broken audit store (disk full, permissions) used to
+    # propagate SupplierEvaluationAuditWriteError straight out of run(),
+    # uncaught - callers that only expect a SupplierEvaluationRun back
+    # would crash instead of seeing a reported failure.
+    unwritable_path = tmp_path / "not_a_file"
+    unwritable_path.mkdir()
+    store = SupplierEvaluationAuditStore(unwritable_path)
+    evaluator = SupplierEvaluator(store)
+
+    run = evaluator.run([_row("Acme", "PO-1", "2025-01-01", "2025-01-01")], evaluation_id="eval-1")
+
+    assert run.outcome == "crashed"
+    assert run.crash_error is not None
+
+
+def test_fail_run_preserves_the_original_exception_even_when_the_audit_write_also_fails(tmp_path):
+    # Regression: if evaluate_supplier_reliability() fails AND the
+    # subsequent audit write also fails, the original, more useful
+    # exception must still be the one reported - not masked by the
+    # secondary audit-store failure.
+    unwritable_path = tmp_path / "not_a_file"
+    unwritable_path.mkdir()
+    store = SupplierEvaluationAuditStore(unwritable_path)
+    evaluator = SupplierEvaluator(store)
+
+    run = evaluator.run([], evaluation_id="eval-1", delay_threshold_days=0)
+
+    assert run.outcome == "crashed"
+    assert "delay_threshold_days" in run.crash_error

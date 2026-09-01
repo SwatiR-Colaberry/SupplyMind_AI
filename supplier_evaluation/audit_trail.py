@@ -2,13 +2,16 @@
 
 Every supplier evaluated in an evaluation run gets one persisted record:
 which evaluation run, which supplier, the resulting score/severity/
-flagged verdict, and a timestamp. Records are keyed by an idempotency key
-- `f"{evaluation_id}:{supplier}"` - so re-recording the same supplier's
-evaluation within the same run does not create a duplicate audit entry;
-the existing record is returned instead of a new one being written. This
-is what satisfies AC3 ("Trust: given supplier evaluation, then an audit
-trail of the evaluation process is recorded") and the "Audit trail not
-recorded for evaluations" failure path.
+flagged verdict, and a timestamp. A run with no scoreable supplier at all
+(e.g. no delivery data provided) still gets one run-level record
+(`supplier=None`), so a completed evaluation process is never left with
+zero audit trace. Records are keyed by an idempotency key -
+`f"{evaluation_id}:{supplier or ''}"` - so re-recording the same
+supplier's evaluation within the same run does not create a duplicate
+audit entry; the existing record is returned instead of a new one being
+written. This is what satisfies AC3 ("Trust: given supplier evaluation,
+then an audit trail of the evaluation process is recorded") and the
+"Audit trail not recorded for evaluations" failure path.
 
 This mirrors intelligence/audit_trail.py's StageAuditStore (STORY-012)
 and data_integration/audit_trail.py's AuditStore (STORY-011) almost
@@ -36,12 +39,22 @@ logger = get_logger()
 EvaluationOutcome = Literal["success", "failure"]
 
 
+def _idempotency_key(evaluation_id: str, supplier: str | None) -> str:
+    # supplier=None (a run-level record) maps to "" here, never to a real
+    # supplier's key - reliability.py's _supplier_key() never returns an
+    # empty string for a real supplier (empty/whitespace-only values are
+    # already routed to unattributable_rows before reaching this module),
+    # so "" is safely reserved for "no specific supplier" without needing
+    # a magic sentinel string that a real supplier name could collide with.
+    return f"{evaluation_id}:{supplier or ''}"
+
+
 @dataclass(frozen=True)
 class SupplierEvaluationAuditRecord:
     record_id: str
     idempotency_key: str
     evaluation_id: str
-    supplier: str
+    supplier: str | None  # None marks a run-level record - see record()'s docstring
     outcome: EvaluationOutcome
     timestamp: str
     score: float | None = None
@@ -129,8 +142,8 @@ class SupplierEvaluationAuditStore:
                 continue
             self._records[record.idempotency_key] = record
 
-    def has_recorded(self, evaluation_id: str, supplier: str) -> bool:
-        return f"{evaluation_id}:{supplier}" in self._records
+    def has_recorded(self, evaluation_id: str, supplier: str | None) -> bool:
+        return _idempotency_key(evaluation_id, supplier) in self._records
 
     def records_for_evaluation(self, evaluation_id: str) -> list[SupplierEvaluationAuditRecord]:
         return [r for r in self._records.values() if r.evaluation_id == evaluation_id]
@@ -139,7 +152,7 @@ class SupplierEvaluationAuditStore:
         self,
         *,
         evaluation_id: str,
-        supplier: str,
+        supplier: str | None,
         outcome: EvaluationOutcome,
         score: float | None = None,
         severity: str | None = None,
@@ -148,12 +161,19 @@ class SupplierEvaluationAuditStore:
     ) -> SupplierEvaluationAuditRecord:
         """Persist one supplier-evaluation record, unless (evaluation_id, supplier) was already seen.
 
+        `supplier=None` records a run-level event rather than one tied to a
+        specific supplier - reliability.py's `_supplier_key()` guarantees a
+        real supplier value is never `None` or empty (rows with no usable
+        supplier are routed to `unattributable_rows` instead), so `None`
+        can't collide with a real supplier the way an earlier sentinel
+        string once could have.
+
         Returns the new record, or the existing one if this
         (evaluation_id, supplier) pair was already recorded -
         re-recording the same supplier's evaluation within the same run
         must not duplicate the trail.
         """
-        idempotency_key = f"{evaluation_id}:{supplier}"
+        idempotency_key = _idempotency_key(evaluation_id, supplier)
         with self._lock:
             existing = self._records.get(idempotency_key)
             if existing is not None:
