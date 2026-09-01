@@ -2,12 +2,18 @@
 
 Demonstrates the two-stage pipeline this story adds: stage 1 runs the
 existing analysis agents (STORY-003's DemandForecastingAgent, STORY-004's
-StockoutRiskAgent, STORY-005's RiskDetectionAgent) through the STORY-002
-Orchestrator against supply chain data; stage 2 feeds their AgentResponse
-outputs into STORY-006's RecommendationAgent through a second
-Orchestrator.coordinate() call. This is what makes acceptance criterion 1
-demoable end-to-end: "given AI agent outputs, when the system processes
-them, then it should generate actionable recommendations."
+StockoutRiskAgent, STORY-005's RiskDetectionAgent, STORY-013's
+SupplierEvaluationAgent) through the STORY-002 Orchestrator against
+supply chain data; stage 2 feeds their AgentResponse outputs into
+STORY-006's RecommendationAgent through a second Orchestrator.coordinate()
+call. This is what makes acceptance criterion 1 demoable end-to-end:
+"given AI agent outputs, when the system processes them, then it should
+generate actionable recommendations." SupplierEvaluationAgent was added
+after STORY-013 shipped, once its own story was complete - see
+agents/supplier_evaluation_agent.py's own docstring for why it needed a
+dedicated Agent wrapper rather than piggybacking on RiskDetectionAgent's
+existing "delivery_rows" handling (per-PO delay vs. per-supplier
+aggregate reliability are different findings, not a duplicate signal).
 
 Nothing in agents/orchestrator.py is modified to support this -
 RecommendationAgent is just another Agent plugged into coordinate(), same
@@ -60,6 +66,7 @@ from agents.orchestrator import CoordinationRun, Orchestrator
 from agents.recommendation_agent import RecommendationAgent
 from agents.risk_detection_agent import RiskDetectionAgent
 from agents.stockout_risk_agent import StockoutRiskAgent
+from agents.supplier_evaluation_agent import SupplierEvaluationAgent
 from data_integration.audit_trail import AuditStore
 from data_integration.orchestrator import PostgresDataset, available_for_analysis, run_integration_with_audit
 
@@ -130,7 +137,9 @@ def _real_data_scenario() -> dict:
         "delivery_rows": analysis_ready.get("delivery_records", []),
         "inventory_rows": analysis_ready.get("inventory", []),
     }
-    stage1 = Orchestrator([DemandForecastingAgent(), StockoutRiskAgent(), RiskDetectionAgent()])
+    stage1 = Orchestrator(
+        [DemandForecastingAgent(), StockoutRiskAgent(), RiskDetectionAgent(), SupplierEvaluationAgent()]
+    )
     stage1_run = stage1.coordinate(AgentQuery(text="analyze supply chain", context=context))
     agent_outputs = [r.response for r in stage1_run.results if r.response is not None]
 

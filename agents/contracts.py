@@ -11,13 +11,13 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 AgentResponseStatus = Literal["ok", "error"]
-FindingSubjectKind = Literal["sku", "po", "period"]
+FindingSubjectKind = Literal["sku", "po", "period", "supplier"]
 FindingSeverity = Literal["low", "medium", "high", "critical"]
 
 # Literal isn't enforced at runtime, so validate_response() checks
 # membership against these explicitly - same reasoning it already applies
 # to AgentResponseStatus rather than trusting the type hint alone.
-_VALID_SUBJECT_KINDS = {"sku", "po", "period"}
+_VALID_SUBJECT_KINDS = {"sku", "po", "period", "supplier"}
 _VALID_SEVERITIES = {"low", "medium", "high", "critical"}
 
 
@@ -40,7 +40,7 @@ class AgentFinding:
     nothing to add here and leaves AgentResponse.findings empty.
     """
 
-    subject: str  # e.g. "SKU-123", "PO-1003", "2025-07"
+    subject: str  # e.g. "SKU-123", "PO-1003", "2025-07", "Acme Freight"
     subject_kind: FindingSubjectKind
     severity: FindingSeverity
     detail: str
