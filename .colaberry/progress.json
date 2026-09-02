@@ -3,13 +3,13 @@
   "project": "SupplyMind AI",
   "totals": {
     "stories_total": 16,
-    "stories_verified": 10,
+    "stories_verified": 11,
     "stories_submitted": 0,
-    "stories_in_progress": 6,
+    "stories_in_progress": 5,
     "stories_not_started": 0,
     "criteria_total": 50,
-    "criteria_passed": 29,
-    "points_awarded": 500
+    "criteria_passed": 32,
+    "points_awarded": 550
   },
   "stories": [
     {
@@ -307,19 +307,15 @@
       "notes": "analyze_root_cause() correlates a reported Issue against already-computed STORY-005/013 signals (demand anomalies, supplier delays, supplier reliability scores) deterministically - no LLM/ML call. RootCauseAuditStore/RootCauseEvaluator mirror supplier_evaluation's STORY-013 trust-spine pattern exactly. RootCauseAnalysisAgent plugs into the existing Orchestrator and derives signals from raw rows the same way RiskDetectionAgent/SupplierEvaluationAgent already do. Demo proven against both synthetic data and a real local Postgres instance (scripts/local_test_db.py, from STORY-005).",
       "updated_at": "2026-09-02T00:00:00.000Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given a supply chain issue, when the system analyzes it, then it should provide a root cause analysis.",
-          "Given insufficient data for analysis, when the system attempts root cause analysis, then it should notify the user of limitations.",
-          "Trust: The system logs all root cause analyses with timestamps and confidence levels."
-        ]
+        "verified_at": "2026-09-02T15:33:40.328919+00:00",
+        "commit_sha": "f0096b894b3d370721fa6395ceb65a238ceeb123",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/f0096b894b3d370721fa6395ceb65a238ceeb123",
+        "commit_at": "2026-09-02T15:33:24Z",
+        "points_awarded": 50,
+        "outstanding": []
       }
     },
     {
