@@ -16,13 +16,13 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal, Union
 
-from data_integration import postgres_connector, sheets_connector
+from data_integration import bts_border_crossing_connector, postgres_connector, sheets_connector
 from data_integration.audit_trail import AuditStore, AuditTrailWriteError
 from data_integration.logging_setup import get_logger
 
 logger = get_logger()
 
-SourceType = Literal["postgresql", "google_sheets"]
+SourceType = Literal["postgresql", "google_sheets", "public_api"]
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,22 @@ class SheetsDataset:
     source_type: SourceType = "google_sheets"
 
 
-Dataset = Union[PostgresDataset, SheetsDataset]
+@dataclass(frozen=True)
+class BtsBorderCrossingDataset:
+    """A live pull from data.bts.gov's public Border Crossing Entry Data API - no auth required.
+
+    See data_integration/bts_border_crossing_connector.py's module
+    docstring for why truck-crossing volume stands in for a live
+    demand-history signal here.
+    """
+
+    name: str
+    measure: str = bts_border_crossing_connector.DEFAULT_MEASURE
+    lookback_months: int = bts_border_crossing_connector.DEFAULT_LOOKBACK_MONTHS
+    source_type: SourceType = "public_api"
+
+
+Dataset = Union[PostgresDataset, SheetsDataset, BtsBorderCrossingDataset]
 
 
 @dataclass
@@ -57,6 +72,10 @@ def _fetch(dataset: Dataset) -> list[dict[str, Any]]:
         return postgres_connector.fetch_rows(dataset.query)
     if isinstance(dataset, SheetsDataset):
         return sheets_connector.fetch_rows(dataset.spreadsheet_id, dataset.worksheet_name)
+    if isinstance(dataset, BtsBorderCrossingDataset):
+        return bts_border_crossing_connector.fetch_monthly_truck_crossing_history(
+            measure=dataset.measure, lookback_months=dataset.lookback_months
+        )
     raise TypeError(f"Unknown dataset type: {type(dataset).__name__}")
 
 

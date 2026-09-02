@@ -4,6 +4,10 @@ psycopg2-binary==2.9.12
 gspread==6.2.1
 google-auth==2.50.0
 
+# Runtime dep used by data_integration/bts_border_crossing_connector.py
+# (live public Socrata API pull for STORY-007's live_data demo scenario).
+requests==2.32.5
+
 # Test tooling.
 pytest==8.4.2
 

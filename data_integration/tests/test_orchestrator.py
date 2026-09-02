@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from data_integration.audit_trail import AuditStore, AuditTrailWriteError
 from data_integration.orchestrator import (
+    BtsBorderCrossingDataset,
     PostgresDataset,
     SheetsDataset,
     available_for_analysis,
@@ -28,6 +29,18 @@ def test_run_integration_all_sources_available():
     assert [r.outcome for r in results] == ["success", "success"]
     data = available_for_analysis(results)
     assert data == {"customer_orders": [{"order_id": 1}], "inventory": [{"sku": "A1"}]}
+
+
+def test_run_integration_dispatches_bts_border_crossing_dataset():
+    dataset = BtsBorderCrossingDataset(name="bts_border_crossing", measure="Trains", lookback_months=6)
+    with patch("data_integration.orchestrator.bts_border_crossing_connector.fetch_monthly_truck_crossing_history") as mock_fetch:
+        mock_fetch.return_value = [{"order_date": "2025-01-01", "quantity": 100.0}]
+
+        results = run_integration([dataset])
+
+    assert results[0].outcome == "success"
+    assert results[0].source_type == "public_api"
+    mock_fetch.assert_called_once_with(measure="Trains", lookback_months=6)
 
 
 def test_run_integration_isolates_one_failure_from_the_rest():
