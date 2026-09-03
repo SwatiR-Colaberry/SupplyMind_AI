@@ -325,21 +325,40 @@
       "criteria": [
         {
           "text": "Given a scenario input, when the system simulates it, then it should provide impact assessments.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given invalid scenario parameters, when the system attempts simulation, then it should notify the user of errors.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system logs all scenario simulations with timestamps and input parameters.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "scenario_simulation/__init__.py",
+        "scenario_simulation/simulation.py",
+        "scenario_simulation/audit_trail.py",
+        "scenario_simulation/evaluator.py",
+        "scenario_simulation/logging_setup.py",
+        "scenario_simulation/run_sample_scenario_simulation.py",
+        "scenario_simulation/tests/__init__.py",
+        "scenario_simulation/tests/test_simulation.py",
+        "scenario_simulation/tests/test_audit_trail.py",
+        "scenario_simulation/tests/test_evaluator.py",
+        "agents/scenario_simulation_agent.py",
+        "agents/tests/test_scenario_simulation_agent.py",
+        ".gitignore"
+      ],
+      "tests_added": [
+        "scenario_simulation/tests/test_simulation.py",
+        "scenario_simulation/tests/test_audit_trail.py",
+        "scenario_simulation/tests/test_evaluator.py",
+        "agents/tests/test_scenario_simulation_agent.py"
+      ],
+      "notes": "simulate_scenario() applies caller deltas (demand %, lead time, safety stock, stock) to a baseline InventoryPosition and re-runs STORY-004's assess_stockout_risk() on both baseline and projected positions, reporting the diff as the impact assessment - no new risk model invented. ScenarioSimulationAuditStore/ScenarioEvaluator mirror root_cause's STORY-007 trust-spine pattern, with input_parameters persisted on every record (AC3 requires the actual inputs, not just confidence). ScenarioSimulationAgent plugs into the existing Orchestrator and reuses inventory_risk/data_quality.py to validate the raw baseline row before simulating, separating data-processing errors from invalid-scenario-parameter errors. Pre-commit /code-review high found and fixed 3 real input-validation bugs in the agent (non-dict baseline_row, non-string scenario_name, explicit-null delta field each crashing instead of returning a clean error response) - see PROGRESS.md for detail.",
+      "updated_at": "2026-09-03T00:00:00.000Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,
