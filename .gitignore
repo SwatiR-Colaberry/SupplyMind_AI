@@ -9,4 +9,5 @@ stage_audit_log.jsonl
 evaluation_audit_log.jsonl
 analysis_audit_log.jsonl
 simulation_audit_log.jsonl
+delay_analysis_audit_log.jsonl
 scripts/.local_pgdata/

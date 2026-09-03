@@ -8,7 +8,7 @@
     "stories_in_progress": 4,
     "stories_not_started": 0,
     "criteria_total": 50,
-    "criteria_passed": 35,
+    "criteria_passed": 38,
     "points_awarded": 600
   },
   "stories": [
@@ -34,7 +34,7 @@
           "passed": true
         },
         {
-          "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.",
+          "text": "Trust \u2014 no tab shows a number, a connection or a result the project has not actually produced.",
           "passed": true
         }
       ],
@@ -556,35 +556,50 @@
       "criteria": [
         {
           "text": "Given shipment data, When analyzed, Then the system identifies delay patterns",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given shipment delays, When costs are calculated, Then the system provides cost analysis",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: Given shipment analysis, Then an audit trail of delay analysis is maintained",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "shipment_delay_analysis/__init__.py",
+        "shipment_delay_analysis/delay_analysis.py",
+        "shipment_delay_analysis/audit_trail.py",
+        "shipment_delay_analysis/evaluator.py",
+        "shipment_delay_analysis/logging_setup.py",
+        "shipment_delay_analysis/run_sample_shipment_delay_analysis.py",
+        "shipment_delay_analysis/tests/__init__.py",
+        "shipment_delay_analysis/tests/test_delay_analysis.py",
+        "shipment_delay_analysis/tests/test_audit_trail.py",
+        "shipment_delay_analysis/tests/test_evaluator.py",
+        "agents/shipment_delay_analysis_agent.py",
+        "agents/tests/test_shipment_delay_analysis_agent.py",
+        ".gitignore"
+      ],
+      "tests_added": [
+        "shipment_delay_analysis/tests/test_delay_analysis.py",
+        "shipment_delay_analysis/tests/test_audit_trail.py",
+        "shipment_delay_analysis/tests/test_evaluator.py",
+        "agents/tests/test_shipment_delay_analysis_agent.py"
+      ],
+      "notes": "analyze_shipment_delays() reuses risk_detection/anomaly_detection.py's detect_supplier_delays() for all per-row validation and delay detection - no second delay-classification implementation. Cost analysis is a logged assumption (not escalated, same posture as reliability.py's own delay-threshold default): no delivery row in this codebase carries a real transportation-cost field yet, so delay cost is a flat DEFAULT_COST_PER_DAY_LATE=$150/day rate, with an optional per-row transportation_cost layered underneath as a base cost when a caller has real freight data. Delays are grouped into per-supplier SupplierDelayPattern (AC1). An unusable transportation_cost value is flagged in cost_errors and treated as $0 rather than raising (the 'cost calculation errors' failure path). ShipmentDelayAuditStore/ShipmentDelayEvaluator mirror supplier_evaluation's STORY-013 trust-spine pattern exactly (idempotent JSONL store, run-level record when zero delays are found, crash_error surfaced instead of an unhandled exception) - satisfies AC3. ShipmentDelayAnalysisAgent plugs into the existing Orchestrator/RecommendationAgent pipeline; unlike SupplierEvaluationAgent, a run with zero delayed POs is reported status=\"ok\" (every delivery on time is a real, successful finding), not an error. Demo script (run_sample_shipment_delay_analysis.py) run live: exit code 0, 3 delays grouped into one SlowFreight pattern, $4,350 total cost, 3 audit records confirmed written.",
+      "updated_at": "2026-09-03T00:00:00.000Z",
       "verification": {
         "state": "in_progress",
-        "criteria_passed": 0,
+        "criteria_passed": 3,
         "criteria_total": 3,
         "verified_at": null,
         "commit_sha": null,
         "commit_url": null,
         "commit_at": null,
         "points_awarded": null,
-        "outstanding": [
-          "Given shipment data, When analyzed, Then the system identifies delay patterns",
-          "Given shipment delays, When costs are calculated, Then the system provides cost analysis",
-          "Trust: Given shipment analysis, Then an audit trail of delay analysis is maintained"
-        ]
+        "outstanding": []
       }
     },
     {
