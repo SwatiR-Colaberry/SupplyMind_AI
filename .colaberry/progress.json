@@ -3,13 +3,13 @@
   "project": "SupplyMind AI",
   "totals": {
     "stories_total": 16,
-    "stories_verified": 14,
+    "stories_verified": 15,
     "stories_submitted": 0,
-    "stories_in_progress": 2,
+    "stories_in_progress": 1,
     "stories_not_started": 0,
     "criteria_total": 50,
-    "criteria_passed": 41,
-    "points_awarded": 700
+    "criteria_passed": 44,
+    "points_awarded": 750
   },
   "stories": [
     {
@@ -378,15 +378,15 @@
       "criteria": [
         {
           "text": "Given supply chain data, when the system processes it, then it should display key metrics on the dashboard.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given data processing errors, when the system updates the dashboard, then it should notify the user of issues.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system logs all dashboard updates with timestamps and data sources.",
-          "passed": false
+          "passed": true
         }
       ],
       "files_touched": [],
@@ -394,19 +394,15 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given supply chain data, when the system processes it, then it should display key metrics on the dashboard.",
-          "Given data processing errors, when the system updates the dashboard, then it should notify the user of issues.",
-          "Trust: The system logs all dashboard updates with timestamps and data sources."
-        ]
+        "verified_at": "2026-09-04T16:30:08.554787Z",
+        "commit_sha": "c8ba7eca1f25d46ae4abcdb2b68cd3106f53ef20",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/c8ba7eca1f25d46ae4abcdb2b68cd3106f53ef20",
+        "commit_at": "2026-09-04T16:29:51Z",
+        "points_awarded": 50,
+        "outstanding": []
       }
     },
     {
