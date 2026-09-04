@@ -12,23 +12,43 @@ STORY-009's own DashboardEvaluator turns the combined stage-1 + stage-2
 AgentResponses into a DashboardSnapshot, audits every tile, and renders
 it to a self-contained HTML "control tower" page.
 
-Two scenarios are printed and each renders its own HTML file:
+Three scenarios are printed and each renders its own HTML file:
 
-1. "real_data" - real (or, with no credentials configured, empty) supply
-   chain data pulled via STORY-011's audited run_integration_with_audit().
-   With this repo's current environment (no PostgreSQL credentials), every
-   stage-1 dataset pull fails, so every stage-1 agent reports status="error"
-   except DataQualityMonitoringAgent (STORY-015), which reports "ok" even
-   on zero rows - "no data at all" is itself the alert-worthy finding that
-   agent exists to surface (see agents/data_quality_monitoring_agent.py's
-   own docstring), the same behavior
-   recommendation/run_sample_recommendation_demo.py's own "real_data"
-   scenario documents. RecommendationAgent still succeeds off that one
-   agent's output, so the dashboard ends up "degraded" (some tiles failed,
-   others didn't) with a notification listing the failed data sources -
-   this is what proves AC2 ("given data processing errors... notify the
-   user of issues") end-to-end, not just in a unit test.
-2. "synthetic_healthy" - hand-built rows (8 months of steady demand, 4
+1. "real_data" - whatever this environment's real Postgres actually
+   returns via STORY-011's audited run_integration_with_audit(). With no
+   credentials configured, every stage-1 dataset pull fails and the
+   dashboard comes out "degraded" (see the "partial_failure" scenario
+   below for why AC2 no longer depends on this happening to be true).
+   Against a real, populated database (e.g. scripts/local_test_db.py's
+   seeded local Postgres), every stage-1 agent succeeds and the
+   dashboard comes out "ok" with real findings (critical stockout risk,
+   a demand spike, a late delivery - whatever the seed data or live
+   source actually contains). Both outcomes are legitimate and this
+   scenario reports honestly whichever one the environment produces -
+   its own success bar is just "the pipeline ran end-to-end and
+   produced tiles," never a specific overall_status, since asserting a
+   specific status here would be asserting a fact about the environment
+   this script does not control.
+2. "partial_failure" - a synthetic, environment-independent scenario:
+   inventory data only, no demand history or delivery records. This
+   deterministically leaves DemandForecastingAgent/
+   SupplierEvaluationAgent/ShipmentDelayAnalysisAgent without the data
+   they each require (status="error") while StockoutRiskAgent/
+   RiskDetectionAgent/DataQualityMonitoringAgent still succeed off the
+   inventory data alone, so the dashboard comes out "degraded" with a
+   notification listing the 3 failed sources - this is what proves AC2
+   ("given data processing errors... notify the user of issues")
+   end-to-end, reliably, regardless of whether this environment happens
+   to have PostgreSQL configured. Original design mistake worth naming
+   directly: this scenario used to just be "real_data" with the
+   implicit assumption "this environment never has real credentials" -
+   the first time this was run against a real, populated database (this
+   session, at the user's prompt), "real_data" instead succeeded
+   cleanly and demo's own exit-code gate failed despite the dashboard
+   working exactly right, because the gate had baked in that wrong
+   assumption. This scenario removes the coupling between "prove AC2"
+   and "hope this environment stays credential-less."
+3. "synthetic_healthy" - hand-built rows (8 months of steady demand, 4
    on-time deliveries for one supplier, 2 well-stocked SKUs) feeding every
    stage-1 agent successfully, so the dashboard ends up "ok" with no
    notification - AC1's clean path ("given supply chain data... display
@@ -213,6 +233,25 @@ def _real_data_scenario() -> dict:
     return _summarize("real_data", run, html_path)
 
 
+def _partial_failure_scenario() -> dict:
+    # Inventory only - no demand_history, no delivery_rows. Deterministic
+    # regardless of whether this environment has PostgreSQL configured;
+    # see module docstring for why AC2's proof lives here rather than in
+    # "real_data".
+    context = {
+        "demand_history": [],
+        "delivery_rows": [],
+        "inventory_rows": SYNTHETIC_INVENTORY_ROWS,
+    }
+    dataset_results = [
+        DatasetResult(name="customer_orders", source_type="postgres", outcome="success", rows=[]),
+        DatasetResult(name="delivery_records", source_type="postgres", outcome="success", rows=[]),
+        DatasetResult(name="inventory", source_type="postgres", outcome="success", rows=SYNTHETIC_INVENTORY_ROWS),
+    ]
+    run, html_path = _build_dashboard("partial_failure", context, dataset_results)
+    return _summarize("partial_failure", run, html_path)
+
+
 def _synthetic_healthy_scenario() -> dict:
     context = {
         "demand_history": SYNTHETIC_DEMAND_HISTORY,
@@ -233,14 +272,20 @@ def _synthetic_healthy_scenario() -> dict:
 
 
 def main() -> int:
-    scenarios = [_real_data_scenario(), _synthetic_healthy_scenario()]
+    scenarios = [_real_data_scenario(), _partial_failure_scenario(), _synthetic_healthy_scenario()]
     print(json.dumps(scenarios, indent=2))
 
-    real_data, synthetic = scenarios
+    real_data, partial_failure, synthetic = scenarios
     demo_succeeded = (
+        # "real_data" reports honestly whichever way this environment's
+        # actual PostgreSQL state goes - its bar is "the pipeline ran and
+        # produced tiles," never a specific overall_status. See module
+        # docstring.
         real_data["build_outcome"] == "success"
-        and real_data["overall_status"] == "degraded"
-        and real_data["notification"] is not None
+        and len(real_data["tiles"]) > 0
+        and partial_failure["build_outcome"] == "success"
+        and partial_failure["overall_status"] == "degraded"
+        and partial_failure["notification"] is not None
         and synthetic["build_outcome"] == "success"
         and synthetic["overall_status"] == "ok"
         and synthetic["notification"] is None
