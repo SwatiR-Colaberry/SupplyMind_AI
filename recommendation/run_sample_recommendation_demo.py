@@ -3,19 +3,23 @@
 Demonstrates the two-stage pipeline this story adds: stage 1 runs the
 existing analysis agents (STORY-003's DemandForecastingAgent, STORY-004's
 StockoutRiskAgent, STORY-005's RiskDetectionAgent, STORY-013's
-SupplierEvaluationAgent, STORY-014's ShipmentDelayAnalysisAgent) through
-the STORY-002 Orchestrator against supply chain data; stage 2 feeds their
-AgentResponse outputs into STORY-006's RecommendationAgent through a
-second Orchestrator.coordinate() call. This is what makes acceptance
-criterion 1 demoable end-to-end: "given AI agent outputs, when the system
-processes them, then it should generate actionable recommendations."
-SupplierEvaluationAgent and ShipmentDelayAnalysisAgent were each added
-once their own story was complete - see agents/supplier_evaluation_agent.py's
-and agents/shipment_delay_analysis_agent.py's own docstrings for why each
+SupplierEvaluationAgent, STORY-014's ShipmentDelayAnalysisAgent,
+STORY-015's DataQualityMonitoringAgent) through the STORY-002 Orchestrator
+against supply chain data; stage 2 feeds their AgentResponse outputs into
+STORY-006's RecommendationAgent through a second Orchestrator.coordinate()
+call. This is what makes acceptance criterion 1 demoable end-to-end:
+"given AI agent outputs, when the system processes them, then it should
+generate actionable recommendations."
+SupplierEvaluationAgent, ShipmentDelayAnalysisAgent, and
+DataQualityMonitoringAgent were each added once their own story was
+complete - see agents/supplier_evaluation_agent.py's,
+agents/shipment_delay_analysis_agent.py's, and
+agents/data_quality_monitoring_agent.py's own docstrings for why each
 needed a dedicated Agent wrapper rather than piggybacking on
 RiskDetectionAgent's existing "delivery_rows" handling (per-PO delay vs.
-per-supplier aggregate reliability vs. per-PO delay-cost are three
-distinct findings, not duplicate signals).
+per-supplier aggregate reliability vs. per-PO delay-cost vs. a
+whole-batch Data Quality Score are four distinct findings, not duplicate
+signals).
 
 Nothing in agents/orchestrator.py is modified to support this -
 RecommendationAgent is just another Agent plugged into coordinate(), same
@@ -30,13 +34,19 @@ scenario - same audit trail, same logged schema assumptions.
 
 Two scenarios are printed:
 1. "real_data" - real (or, with no credentials configured, empty) supply
-   chain data through all three analysis agents, then through
+   chain data through all stage-1 analysis agents, then through
    RecommendationAgent. With this repo's current environment (no
-   PostgreSQL credentials), every stage-1 dataset pull fails, every
-   stage-1 agent returns status="error", and RecommendationAgent
-   correctly reports its own "no successful agent output" error -
+   PostgreSQL credentials), every stage-1 dataset pull fails, so every
+   analysis agent returns status="error" - except
+   DataQualityMonitoringAgent (STORY-015), which reports status="ok" even
+   on zero rows ("no data at all" is itself the alert-worthy finding that
+   agent exists to surface, not a failure of it - see its own docstring).
+   RecommendationAgent's own "no successful agent output" failure path -
    acceptance criterion 1's failure path, chained through two stages
-   instead of one.
+   instead of one - is exercised directly by
+   agents/tests/test_recommendation_agent.py and
+   recommendation/tests/test_synthesis.py instead, since this scenario no
+   longer reaches it with a data-quality agent always present.
 2. "engineered_conflict" - a deliberately constructed disagreement: the
    same SKU assessed from two different inventory snapshots (a current
    reading StockoutRiskAgent sees, a stale one RiskDetectionAgent sees),
@@ -63,6 +73,7 @@ from pathlib import Path
 
 import data_integration
 from agents.contracts import AgentQuery, AgentResponse
+from agents.data_quality_monitoring_agent import DataQualityMonitoringAgent
 from agents.demand_forecasting_agent import DemandForecastingAgent
 from agents.orchestrator import CoordinationRun, Orchestrator
 from agents.recommendation_agent import RecommendationAgent
@@ -147,6 +158,7 @@ def _real_data_scenario() -> dict:
             RiskDetectionAgent(),
             SupplierEvaluationAgent(),
             ShipmentDelayAnalysisAgent(),
+            DataQualityMonitoringAgent(),
         ]
     )
     stage1_run = stage1.coordinate(AgentQuery(text="analyze supply chain", context=context))
