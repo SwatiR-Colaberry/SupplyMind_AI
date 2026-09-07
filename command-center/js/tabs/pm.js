@@ -14,7 +14,7 @@ function storiesTable(stories, plan) {
           <td>${escapeHtml(release?.key || "—")}</td>
           <td>${escapeHtml(s.due_on || "—")}</td>
           <td>${statusBadge(s.verification?.state)}</td>
-          <td>${s.verification?.points ?? 0}</td>
+          <td>${s.verification?.points_awarded ?? 0}</td>
         </tr>`;
     })
     .join("");
@@ -134,7 +134,7 @@ function renderStoryDetail(main, ctx, storyId) {
       </div>
       <div class="cc-stat-tile">
         <div class="cc-stat-label">Points</div>
-        <div class="cc-stat-value" style="font-size:18px;">${story.verification?.points ?? 0}</div>
+        <div class="cc-stat-value" style="font-size:18px;">${story.verification?.points_awarded ?? 0}</div>
       </div>
     </div>
     <div class="cc-section">
