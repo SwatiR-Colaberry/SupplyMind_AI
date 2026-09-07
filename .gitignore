@@ -13,5 +13,6 @@ simulation_audit_log.jsonl
 delay_analysis_audit_log.jsonl
 quality_audit_log.jsonl
 dashboard_audit_log.jsonl
+chat_audit_log.jsonl
 control_tower_*.html
 scripts/.local_pgdata/

@@ -8,7 +8,7 @@
     "stories_in_progress": 1,
     "stories_not_started": 0,
     "criteria_total": 50,
-    "criteria_passed": 44,
+    "criteria_passed": 47,
     "points_awarded": 750
   },
   "stories": [
@@ -412,21 +412,40 @@
       "criteria": [
         {
           "text": "Given a user query, when the system processes it, then it should provide a relevant response via chat.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given an unsupported query, when the system processes it, then it should notify the user of limitations.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system logs all chat interactions with timestamps and query details.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "chat_interface/__init__.py",
+        "chat_interface/logging_setup.py",
+        "chat_interface/router.py",
+        "chat_interface/chat.py",
+        "chat_interface/audit_trail.py",
+        "chat_interface/evaluator.py",
+        "chat_interface/run_sample_chat_interface.py",
+        "chat_interface/tests/__init__.py",
+        "chat_interface/tests/test_router.py",
+        "chat_interface/tests/test_chat.py",
+        "chat_interface/tests/test_audit_trail.py",
+        "chat_interface/tests/test_evaluator.py",
+        ".gitignore"
+      ],
+      "tests_added": [
+        "chat_interface/tests/test_router.py",
+        "chat_interface/tests/test_chat.py",
+        "chat_interface/tests/test_audit_trail.py",
+        "chat_interface/tests/test_evaluator.py"
+      ],
+      "notes": "answer_query() answers a natural-language query straight from a STORY-009 dashboard.metrics.DashboardSnapshot (the agent fleet's already-computed tiles) rather than re-running any agent or calling an LLM - per CLAUDE.md's determinism principle, query routing is a deterministic keyword classifier (router.classify_query()), not a model call. Three response shapes: 'answered' (a healthy tile's headline+confidence), 'data_unavailable' (topic recognized but that tile errored or wasn't part of this snapshot's fleet - the 'Data processing errors' failure path), 'unsupported' (no topic matched, including a blank query - the 'Unsupported query errors' failure path, naming every topic actually supported). ChatAuditStore/ChatEvaluator mirror data_quality_monitoring's STORY-015 trust-spine pattern exactly (idempotent JSONL store keyed on interaction_id, crash_error surfaced instead of an unhandled exception) - satisfies the Trust AC. Pre-commit /code-review high found and fixed 1 real bug: classify_query() originally picked whichever topic was listed first in its keyword table when a query matched more than one topic's keywords (e.g. 'is our supplier causing shipment delays?' resolved to supplier_evaluation_agent purely by table order, not relevance) - fixed by matching on the longest keyword found across all topics instead, with a regression test locking in the corrected behavior. Demo (run_sample_chat_interface.py) run live against a real stage-1+stage-2 Orchestrator pipeline (the same 6-agent fleet + RecommendationAgent every sibling demo coordinates): exit code 0, all 4 sample queries resolved exactly as expected (answered / unsupported / two data_unavailable cases), all 4 interactions confirmed audited.",
+      "updated_at": "2026-09-07T00:00:00.000Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,
