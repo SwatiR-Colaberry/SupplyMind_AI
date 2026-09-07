@@ -21,7 +21,7 @@ dashboard/run_sample_dashboard.py's and
 recommendation/run_sample_recommendation_demo.py's own near-identical
 stage-1 agent lists) - each demo owns its own wiring.
 
-Two DashboardSnapshots are built:
+Three DashboardSnapshots are built:
 
 1. "healthy" - the full synthetic dataset (demand history, on-time
    deliveries, well-stocked inventory); every stage-1 agent succeeds.
@@ -34,20 +34,41 @@ Two DashboardSnapshots are built:
    "data processing errors" failure path: a query whose topic IS
    recognized still gets an honest "can't answer that right now" instead
    of a crash or a fabricated answer.
+3. "real" - whatever this environment's real Postgres actually returns via
+   the same DATASETS dashboard/run_sample_dashboard.py already pulls. With
+   no credentials configured, every stage-1 pull fails, same as that
+   module's own "real_data" scenario. Against scripts/local_test_db.py's
+   seeded local Postgres (one demand-spike month, one critically low-stock
+   SKU, one badly late delivery - see that script's own docstring), this
+   is what proves the chat interface gives real, specific answers off a
+   live, non-synthetic dataset, not just hand-tuned example rows. Like
+   dashboard/run_sample_dashboard.py's own "real_data" scenario, this one
+   is purely informational - it does not gate the exit code, since
+   asserting a specific answer here would be asserting a fact about the
+   environment this script does not control.
 
-Four queries are run across these two snapshots, covering AC1's happy
-path plus both documented failure paths:
+Four queries are run across the two synthetic snapshots, covering AC1's
+happy path plus both documented failure paths, and gate the exit code:
   - "what's our stockout risk?" against "healthy"  -> answered
   - "what's the weather today?" against "healthy"  -> unsupported (AC2)
   - "what's the demand forecast?" against "partial" -> data_unavailable
   - "how reliable are our suppliers?" against "partial" -> data_unavailable
 
+Three more queries run against "real" whenever real data is available,
+printed but not gated:
+  - "what's our stockout risk?" (expect SKU-GIZMO's critical shortage)
+  - "any anomalies in our supply chain?" (expect the 2025-07 demand spike)
+  - "which shipments are delayed?" (expect Beta Logistics' 15-day-late PO)
+
 Every interaction runs through ChatEvaluator, so each one also leaves an
 audited record (Trust AC) - verified directly against the audit store
-after all four queries run.
+after all queries run.
 
 Usage:
     python -m chat_interface.run_sample_chat_interface
+    # against real data:
+    eval "$(python3 scripts/local_test_db.py)"
+    python3 -m chat_interface.run_sample_chat_interface
 """
 
 from __future__ import annotations
@@ -58,6 +79,7 @@ import sys
 from pathlib import Path
 
 import chat_interface
+import data_integration
 from agents.contracts import AgentQuery, AgentResponse
 from agents.data_quality_monitoring_agent import DataQualityMonitoringAgent
 from agents.demand_forecasting_agent import DemandForecastingAgent
@@ -71,17 +93,26 @@ from chat_interface.audit_trail import ChatAuditStore
 from chat_interface.evaluator import ChatEvaluator, ChatInteractionRun
 from dashboard.metrics import DashboardSnapshot, build_dashboard
 from dashboard.run_sample_dashboard import (
+    DATASETS,
     SYNTHETIC_DELIVERY_ROWS,
     SYNTHETIC_DEMAND_HISTORY,
     SYNTHETIC_INVENTORY_ROWS,
 )
+from data_integration.audit_trail import AuditStore
+from data_integration.orchestrator import available_for_analysis, run_integration_with_audit
 
 DEFAULT_AUDIT_LOG_PATH = Path(chat_interface.__file__).resolve().parent / "chat_audit_log.jsonl"
+DEFAULT_DATA_INTEGRATION_AUDIT_LOG_PATH = Path(data_integration.__file__).resolve().parent / "audit_log.jsonl"
 
 
-def _audit_store() -> ChatAuditStore:
+def chat_audit_store() -> ChatAuditStore:
     path = os.environ.get("SUPPLYMIND_CHAT_AUDIT_LOG_PATH", str(DEFAULT_AUDIT_LOG_PATH))
     return ChatAuditStore(path)
+
+
+def _data_integration_audit_store() -> AuditStore:
+    path = os.environ.get("SUPPLYMIND_AUDIT_LOG_PATH", str(DEFAULT_DATA_INTEGRATION_AUDIT_LOG_PATH))
+    return AuditStore(path)
 
 
 def _stage1_results(context: dict) -> list[CoordinationResult]:
@@ -111,7 +142,7 @@ def _build_snapshot(dashboard_id: str, context: dict) -> DashboardSnapshot:
     return build_dashboard(stage1_results + stage2_results, dashboard_id=dashboard_id)
 
 
-def _healthy_snapshot() -> DashboardSnapshot:
+def build_healthy_snapshot() -> DashboardSnapshot:
     context = {
         "demand_history": SYNTHETIC_DEMAND_HISTORY,
         "delivery_rows": SYNTHETIC_DELIVERY_ROWS,
@@ -133,6 +164,17 @@ def _partial_snapshot() -> DashboardSnapshot:
     return _build_snapshot("chat-demo-partial", context)
 
 
+def build_real_data_snapshot() -> DashboardSnapshot:
+    dataset_results = run_integration_with_audit(DATASETS, _data_integration_audit_store())
+    analysis_ready = available_for_analysis(dataset_results)
+    context = {
+        "demand_history": analysis_ready.get("customer_orders", []),
+        "delivery_rows": analysis_ready.get("delivery_records", []),
+        "inventory_rows": analysis_ready.get("inventory", []),
+    }
+    return _build_snapshot("chat-demo-real", context)
+
+
 def _ask(evaluator: ChatEvaluator, query_text: str, snapshot: DashboardSnapshot, interaction_id: str) -> dict:
     run: ChatInteractionRun = evaluator.run(query_text, snapshot, interaction_id=interaction_id)
     return {
@@ -145,32 +187,47 @@ def _ask(evaluator: ChatEvaluator, query_text: str, snapshot: DashboardSnapshot,
     }
 
 
+# (query, snapshot-getter, interaction_id, expected status) - the exit
+# code is gated on these four only. Driving both the _ask() calls and the
+# gate off one list means adding a fifth case here automatically joins
+# the gate too, rather than needing a second, easy-to-forget manual edit
+# to a hand-indexed assertion (that omission is exactly what let an
+# earlier revision of this function silently fold the "real_data"
+# scenario's interactions into the gate - see PROGRESS.md's STORY-010
+# pre-commit-review entry).
+_GATED_CASES = [
+    ("what's our stockout risk?", "healthy", "chat-demo-1", "answered"),
+    ("what's the weather today?", "healthy", "chat-demo-2", "unsupported"),
+    ("what's the demand forecast?", "partial", "chat-demo-3", "data_unavailable"),
+    ("how reliable are our suppliers?", "partial", "chat-demo-4", "data_unavailable"),
+]
+
+
 def main() -> int:
-    audit_store = _audit_store()
-    evaluator = ChatEvaluator(audit_store)
+    store = chat_audit_store()
+    evaluator = ChatEvaluator(store)
 
-    healthy = _healthy_snapshot()
-    partial = _partial_snapshot()
-
+    snapshots = {"healthy": build_healthy_snapshot(), "partial": _partial_snapshot()}
     interactions = [
-        _ask(evaluator, "what's our stockout risk?", healthy, "chat-demo-1"),
-        _ask(evaluator, "what's the weather today?", healthy, "chat-demo-2"),
-        _ask(evaluator, "what's the demand forecast?", partial, "chat-demo-3"),
-        _ask(evaluator, "how reliable are our suppliers?", partial, "chat-demo-4"),
+        _ask(evaluator, query, snapshots[snapshot_key], interaction_id)
+        for query, snapshot_key, interaction_id, _ in _GATED_CASES
     ]
-    print(json.dumps(interactions, indent=2))
 
-    all_audited = all(audit_store.has_recorded(i["interaction_id"]) for i in interactions)
-    demo_succeeded = (
-        interactions[0]["outcome"] == "success"
-        and interactions[0]["status"] == "answered"
-        and interactions[1]["outcome"] == "success"
-        and interactions[1]["status"] == "unsupported"
-        and interactions[2]["outcome"] == "success"
-        and interactions[2]["status"] == "data_unavailable"
-        and interactions[3]["outcome"] == "success"
-        and interactions[3]["status"] == "data_unavailable"
-        and all_audited
+    # Informational only - see module docstring for why this scenario
+    # never gates the exit code, including via the audit check below.
+    real = build_real_data_snapshot()
+    real_interactions = [
+        _ask(evaluator, "what's our stockout risk?", real, "chat-demo-real-1"),
+        _ask(evaluator, "any anomalies in our supply chain?", real, "chat-demo-real-2"),
+        _ask(evaluator, "which shipments are delayed?", real, "chat-demo-real-3"),
+    ]
+
+    print(json.dumps({"synthetic": interactions, "real_data": real_interactions}, indent=2))
+
+    all_gated_audited = all(store.has_recorded(i["interaction_id"]) for i in interactions)
+    demo_succeeded = all_gated_audited and all(
+        actual["outcome"] == "success" and actual["status"] == expected_status
+        for actual, (_, _, _, expected_status) in zip(interactions, _GATED_CASES)
     )
     return 0 if demo_succeeded else 1
 

@@ -61,30 +61,43 @@ def classify_query(query_text: str) -> str | None:
     differences (matching is case-insensitive); a query whose keywords for
     more than one topic are both present (e.g. "is our supplier causing
     shipment delays?" matches both "supplier" and "shipment delay") - the
-    *longest* matching keyword wins, on the assumption that a longer,
-    more specific phrase reflects the query's actual subject better than a
+    *longest* matching keyword wins, on the assumption that a longer, more
+    specific phrase reflects the query's actual subject better than a
     shorter, more generic one. This was a real bug in an earlier version
     of this function, which instead picked whichever topic happened to be
     listed first in `_TOPIC_KEYWORDS` regardless of match specificity.
 
+    A further edge case a pre-commit review caught in that same fix: two
+    *different* topics can each have their own longest match tie at the
+    same length (e.g. "our supplier and shipment carrier update" matches
+    both "supplier" and "shipment", both 8 characters). Silently picking
+    one via table order would just reintroduce the original bug under a
+    new name, so a genuine cross-topic tie at the best length returns
+    None (the "unsupported query" path) instead - an honest "I can't tell
+    which of these you mean" rather than an arbitrary, confident-looking
+    guess. A tie between two keywords of the *same* topic is not
+    ambiguous in this sense and still resolves to that topic normally.
+
     This is a keyword heuristic, not real intent understanding - a query
-    that genuinely, equally concerns two topics (e.g. "does our demand
-    forecast have data quality issues?") still resolves to exactly one of
-    them (whichever keyword is longer) rather than answering both. That
-    residual ambiguity is an accepted limitation of deterministic
-    substring matching, not something this function tries to fully solve;
-    per CLAUDE.md's core determinism principle, resolving it "correctly"
-    for every phrasing would mean reaching for an LLM, which is exactly
-    what this module exists to avoid.
+    that genuinely, equally concerns two topics at *different* keyword
+    lengths (e.g. "does our demand forecast have data quality issues?")
+    still resolves to whichever keyword is longer rather than answering
+    both. That residual ambiguity is an accepted limitation of
+    deterministic substring matching, not something this function tries
+    to fully solve; per CLAUDE.md's core determinism principle, resolving
+    it "correctly" for every phrasing would mean reaching for an LLM,
+    which is exactly what this module exists to avoid.
     """
     normalized = (query_text or "").strip().lower()
     if not normalized:
         return None
-    best_topic: str | None = None
-    best_length = -1
-    for topic, keywords in _TOPIC_KEYWORDS:
-        for keyword in keywords:
-            if len(keyword) > best_length and keyword in normalized:
-                best_topic = topic
-                best_length = len(keyword)
-    return best_topic
+    matches = [
+        (len(keyword), topic) for topic, keywords in _TOPIC_KEYWORDS for keyword in keywords if keyword in normalized
+    ]
+    if not matches:
+        return None
+    best_length = max(length for length, _ in matches)
+    best_topics = {topic for length, topic in matches if length == best_length}
+    if len(best_topics) != 1:
+        return None
+    return next(iter(best_topics))

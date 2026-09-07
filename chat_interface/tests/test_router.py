@@ -43,6 +43,24 @@ def test_classify_query_prefers_longest_match_when_two_specific_topics_collide()
     assert classify_query("is our supplier causing shipment delays?") == "shipment_delay_analysis_agent"
 
 
+def test_classify_query_returns_none_on_a_genuine_cross_topic_length_tie() -> None:
+    # Regression test: even after the longest-match fix, two *different*
+    # topics tying for the best length ("supplier" and "shipment" are both
+    # 8 characters) used to silently fall back to table order, which is
+    # exactly the original bug under a new name. A genuine tie must read
+    # as unsupported/ambiguous instead of a confident-looking guess.
+    assert classify_query("our supplier and shipment carrier update") is None
+    assert classify_query("what is the forecast for stockout items") is None
+
+
+def test_classify_query_tie_within_same_topic_still_resolves() -> None:
+    # "shipment delay" and "delivery delay" are both 14 characters and
+    # both belong to shipment_delay_analysis_agent - a length tie WITHIN
+    # one topic is not ambiguous and must still resolve normally; only a
+    # tie ACROSS different topics should return None.
+    assert classify_query("we had a shipment delay and a delivery delay") == "shipment_delay_analysis_agent"
+
+
 def test_classify_query_returns_none_for_unsupported_query() -> None:
     assert classify_query("what's the weather like today?") is None
 

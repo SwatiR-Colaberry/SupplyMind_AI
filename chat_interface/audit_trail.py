@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -49,18 +49,10 @@ class ChatAuditRecord:
     detail: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {
-            "record_id": self.record_id,
-            "idempotency_key": self.idempotency_key,
-            "interaction_id": self.interaction_id,
-            "outcome": self.outcome,
-            "timestamp": self.timestamp,
-            "query_text": self.query_text,
-            "status": self.status,
-            "topic": self.topic,
-            "answer": self.answer,
-            "detail": self.detail,
-        }
+        # Every field is already a JSON-safe scalar or None, so asdict()
+        # alone is the full serialization - no hand-listed field-by-field
+        # mirror to fall out of sync with the dataclass definition above.
+        return asdict(self)
 
 
 class ChatAuditWriteError(RuntimeError):
