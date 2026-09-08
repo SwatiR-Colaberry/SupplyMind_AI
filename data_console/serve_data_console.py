@@ -621,6 +621,28 @@ async function startMapping(requirements) {
   orUploadBtn.addEventListener('click', function() { uploadFileForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orUploadBtn);
 
+  // A single CSV uploaded while mapping a different dataset already sits
+  // on disk under its own file_id - reuse it here instead of re-uploading
+  // the same (possibly large) file again for a dataset whose columns
+  // happen to live in that same file (e.g. one wide export that covers
+  // every dataset this console needs).
+  if (lastFileUpload) {
+    const orFileBtn = el('button', {
+      className: 'btn-link',
+      text: 'Or reuse the last uploaded file ("' + lastFileUpload.filename + '")',
+    });
+    orFileBtn.addEventListener('click', function() {
+      clear(pickerArea);
+      const statusArea = el('div');
+      pickerArea.appendChild(statusArea);
+      renderFileMappingForm(
+        requirements, lastFileUpload.fileId, lastFileUpload.filename,
+        lastFileUpload.columns, lastFileUpload.suggestedMappings, statusArea
+      );
+    });
+    pickerArea.appendChild(orFileBtn);
+  }
+
   // A zip uploaded while mapping a different dataset already extracted
   // its members onto disk - reuse them here instead of asking the file
   // to be uploaded a second or third time to fill the other slots.
@@ -838,6 +860,12 @@ function writeQueryForMapping(requirements, pickerArea) {
   });
 }
 
+// Cached after any successful single-CSV upload, so mapping a second or
+// third dataset out of the same file (e.g. one wide export that already
+// covers every dataset this console needs) doesn't require re-uploading
+// it - resets on page reload, which is fine for a same-session convenience.
+let lastFileUpload = null; // {fileId, filename, columns, suggestedMappings}
+
 // Cached after any successful zip upload, so mapping a second or third
 // dataset from the same bundle doesn't require re-uploading it - resets
 // on page reload, which is fine for a same-session convenience.
@@ -912,11 +940,16 @@ function uploadFileForMapping(requirements, pickerArea) {
     statusArea.appendChild(el('div', {className: 'placeholder', text: 'Uploading...'}));
     uploadBtn.disabled = true;
 
-    const content = await file.arrayBuffer();
+    // Pass the File straight through as the body instead of first copying it
+    // into an ArrayBuffer in JS - fetch() streams a File/Blob body directly
+    // from disk with a correct Content-Length, and materializing a large file
+    // into an ArrayBuffer first is dramatically slower in Safari than in
+    // other browsers (a real report: a ~90MB file appeared to hang
+    // indefinitely on the old `await file.arrayBuffer()` step).
     const resp = await fetch('/api/uploads', {
       method: 'POST',
       headers: {'Content-Type': file.type || 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name)},
-      body: content,
+      body: file,
     });
     const data = await resp.json();
     uploadBtn.disabled = false;
@@ -933,6 +966,7 @@ function uploadFileForMapping(requirements, pickerArea) {
       return;
     }
 
+    lastFileUpload = {fileId: data.file_id, filename: data.filename, columns: data.columns, suggestedMappings: data.suggested_mappings};
     renderFileMappingForm(requirements, data.file_id, data.filename, data.columns, data.suggested_mappings, statusArea);
   });
 }
