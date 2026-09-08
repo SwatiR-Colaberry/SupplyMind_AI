@@ -1,4 +1,5 @@
-"""Durable local storage for CSV files uploaded through "Map Your Data".
+"""Durable local storage for CSV files uploaded through "Map Your Data",
+including CSVs extracted from an uploaded zip bundle.
 
 Every upload is saved to disk under a generated id rather than held only in
 the browser's memory, so a saved mapping survives a page reload without
@@ -17,6 +18,7 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+import zipfile
 from pathlib import Path
 
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
@@ -25,12 +27,26 @@ UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 # columns, not a data warehouse export - this cap exists purely so a
 # mistaken multi-gigabyte upload can't exhaust this single-threaded dev
 # server's memory, the same reasoning MAX_REQUEST_BODY_BYTES already
-# applies to every other request body in serve_data_console.py.
+# applies to every other request body in serve_data_console.py. Also used
+# as the per-member decompressed-size guard for a zip upload (see
+# extract_csvs_from_zip) - a "zip bomb" is a tiny compressed file that
+# expands to something huge, so the raw upload's own size cap alone
+# wouldn't catch it.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+# This console only ever needs to fill 3 dataset slots - a zip with more
+# members than this is almost certainly not "one CSV per dataset" and is
+# rejected outright rather than silently truncated.
+MAX_ZIP_MEMBERS = 10
 
 
 class UnknownUploadError(LookupError):
     """Raised when a file_id doesn't correspond to a saved upload."""
+
+
+class UnsafeArchiveError(ValueError):
+    """Raised when a zip upload fails a safety check: not a valid zip, too many
+    members, a member too large once decompressed, or no .csv members at all."""
 
 
 def _path_for(file_id: str) -> Path:
@@ -73,3 +89,48 @@ def read_upload_rows(file_id: str) -> list[dict[str, str]]:
     """Returns every data row (header row excluded) as a list of dicts keyed by column name."""
     reader = csv.DictReader(io.StringIO(_read_text(file_id)))
     return list(reader)
+
+
+def extract_csvs_from_zip(content: bytes) -> list[tuple[str, str]]:
+    """Extracts every .csv member from a zip archive, saving each one individually
+    via save_upload() exactly as if it had been uploaded on its own.
+
+    Returns a list of (file_id, member_filename) pairs, one per .csv member
+    found - lets a single zip fill more than one of this console's 3 dataset
+    slots without uploading three separate files.
+
+    Raises UnsafeArchiveError if: the archive isn't a valid zip; it has more
+    than MAX_ZIP_MEMBERS entries; any .csv member exceeds MAX_UPLOAD_BYTES
+    once decompressed; or it contains no .csv members at all.
+
+    A member's own path inside the archive (e.g. "data/orders.csv") is used
+    only as display text via its basename - it is never treated as a
+    filesystem path this module writes to, so there is no zip-slip /
+    path-traversal surface here regardless of what a member's name claims to
+    be (every file this function writes still gets a fresh save_upload() id).
+    """
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(content))
+    except (zipfile.BadZipFile, EOFError) as exc:
+        raise UnsafeArchiveError("not a valid zip file") from exc
+
+    members = [info for info in archive.infolist() if not info.is_dir()]
+    if len(members) > MAX_ZIP_MEMBERS:
+        raise UnsafeArchiveError(f"zip contains more than {MAX_ZIP_MEMBERS} files")
+
+    csv_members = [info for info in members if info.filename.lower().endswith(".csv")]
+    if not csv_members:
+        raise UnsafeArchiveError("zip contains no .csv files")
+
+    oversized = [info.filename for info in csv_members if info.file_size > MAX_UPLOAD_BYTES]
+    if oversized:
+        raise UnsafeArchiveError(
+            f"file(s) exceed the {MAX_UPLOAD_BYTES}-byte limit once extracted: {', '.join(oversized)}"
+        )
+
+    results: list[tuple[str, str]] = []
+    for info in csv_members:
+        display_name = Path(info.filename).name
+        file_id = save_upload(display_name, archive.read(info))
+        results.append((file_id, display_name))
+    return results

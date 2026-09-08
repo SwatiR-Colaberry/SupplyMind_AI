@@ -3,10 +3,12 @@ from __future__ import annotations
 import datetime
 import decimal
 import http.client
+import io
 import json
 import threading
 import urllib.error
 import urllib.request
+import zipfile
 from unittest.mock import patch
 from urllib.parse import urlparse
 
@@ -98,6 +100,14 @@ def _post_raw(base_url: str, path: str, body: bytes, headers: dict):
         return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read())
+
+
+def _zip_bytes(members: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
 
 
 def _post_with_raw_content_length(base_url: str, path: str, content_length: object, body: bytes = b"{}"):
@@ -603,6 +613,7 @@ def test_post_upload_returns_file_id_columns_and_suggested_mappings(server, isol
     status, data = _post_raw(server, "/api/uploads", csv_bytes, {"Content-Type": "text/csv", "X-Filename": "inventory.csv"})
 
     assert status == 200
+    assert data["kind"] == "csv"
     assert data["filename"] == "inventory.csv"
     assert data["columns"] == ["item_sku", "on_hand"]
     assert data["suggested_mappings"]["inventory"]["sku"] == "item_sku"
@@ -628,6 +639,37 @@ def test_post_upload_returns_400_when_body_is_empty(server, isolated_uploads_dir
     status, data = _post_raw(server, "/api/uploads", b"", {"Content-Type": "text/csv", "X-Filename": "empty.csv"})
     assert status == 400
     assert "empty" in data["error"]
+
+
+def test_post_upload_of_a_zip_returns_one_member_per_csv_inside(server, isolated_uploads_dir):
+    archive = _zip_bytes({
+        "orders.csv": b"order_dt,qty\n2025-01-01,10\n",
+        "inventory.csv": b"item_sku,on_hand\nSKU-1,5\n",
+    })
+    status, data = _post_raw(server, "/api/uploads", archive, {"Content-Type": "application/zip", "X-Filename": "bundle.zip"})
+
+    assert status == 200
+    assert data["kind"] == "zip"
+    assert data["filename"] == "bundle.zip"
+    names = sorted(member["filename"] for member in data["members"])
+    assert names == ["inventory.csv", "orders.csv"]
+    orders_member = next(m for m in data["members"] if m["filename"] == "orders.csv")
+    assert orders_member["columns"] == ["order_dt", "qty"]
+    assert orders_member["suggested_mappings"]["customer_orders"]["order_date"] == "order_dt"
+    assert (isolated_uploads_dir / f"{orders_member['file_id']}.csv").exists()
+
+
+def test_post_upload_of_a_zip_with_no_csv_members_returns_400(server, isolated_uploads_dir):
+    archive = _zip_bytes({"README.txt": b"nothing to map"})
+    status, data = _post_raw(server, "/api/uploads", archive, {"Content-Type": "application/zip", "X-Filename": "bundle.zip"})
+    assert status == 400
+    assert "no .csv files" in data["error"]
+
+
+def test_post_upload_of_a_non_zip_blob_named_zip_returns_400(server, isolated_uploads_dir):
+    status, data = _post_raw(server, "/api/uploads", b"not actually a zip", {"Content-Type": "application/zip", "X-Filename": "bundle.zip"})
+    assert status == 400
+    assert "not a valid zip" in data["error"]
 
 
 def test_post_mapping_from_file_validates_and_saves_then_shows_up_in_get_mappings(

@@ -42,7 +42,7 @@ from urllib.parse import unquote
 from data_console import schema_inspector
 from data_console.column_requirements import ALL_DATASETS, BY_NAME, DatasetRequirements
 from data_console.file_mapping_service import probe_upload_columns, save_mapping_from_file
-from data_console.file_store import MAX_UPLOAD_BYTES, UnknownUploadError, save_upload
+from data_console.file_store import MAX_UPLOAD_BYTES, UnknownUploadError, UnsafeArchiveError, extract_csvs_from_zip, save_upload
 from data_console.logging_setup import get_logger
 from data_console.mapping_service import (
     clear_mapping,
@@ -607,14 +607,32 @@ async function startMapping(requirements) {
   orQueryBtn.addEventListener('click', function() { writeQueryForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orQueryBtn);
 
-  // No database needed at all for this one - a CSV's own header row
-  // stands in for a table's real columns. Kept reachable below even when
+  // No database needed at all for this one - a CSV's own header row (or,
+  // for a zip, the header row of whichever member is picked) stands in
+  // for a table's real columns. Kept reachable below even when
   // '/api/tables' reports not connected (see the early return below),
   // since a CSV-only setup with no live database is exactly the case
   // this option exists for.
-  const orUploadBtn = el('button', {className: 'btn-link', text: 'Or upload a CSV file'});
+  const orUploadBtn = el('button', {className: 'btn-link', text: 'Or upload a CSV file (or a .zip of several)'});
   orUploadBtn.addEventListener('click', function() { uploadFileForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orUploadBtn);
+
+  // A zip uploaded while mapping a different dataset already extracted
+  // its members onto disk - reuse them here instead of asking the file
+  // to be uploaded a second or third time to fill the other slots.
+  if (lastZipUpload) {
+    const orZipBtn = el('button', {
+      className: 'btn-link',
+      text: 'Or pick from the last uploaded zip ("' + lastZipUpload.filename + '")',
+    });
+    orZipBtn.addEventListener('click', function() {
+      clear(pickerArea);
+      const statusArea = el('div');
+      pickerArea.appendChild(statusArea);
+      renderZipMemberPicker(requirements, lastZipUpload.filename, lastZipUpload.members, statusArea);
+    });
+    pickerArea.appendChild(orZipBtn);
+  }
 
   const resp = await fetch('/api/tables');
   const data = await resp.json();
@@ -809,17 +827,58 @@ function writeQueryForMapping(requirements, pickerArea) {
   });
 }
 
+// Cached after any successful zip upload, so mapping a second or third
+// dataset from the same bundle doesn't require re-uploading it - resets
+// on page reload, which is fine for a same-session convenience.
+let lastZipUpload = null; // {filename, members}
+
+// Shared by a direct CSV upload and a member picked out of an uploaded zip -
+// both end up with exactly the same shape (one file's columns to map into
+// one dataset), so both render through this one form-building path.
+function renderFileMappingForm(requirements, fileId, filename, columns, suggestedMappings, container) {
+  clear(container);
+  const suggestions = suggestedMappings[requirements.dataset_name] || {};
+  container.appendChild(el('div', {className: 'placeholder', text: 'Map "' + filename + '" to ' + requirements.label + ':'}));
+  const formArea = el('div');
+  container.appendChild(formArea);
+  buildMappingFieldForm(requirements, columns, suggestions, formArea, async function(columnMapping) {
+    const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-file', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({file_id: fileId, filename: filename, column_mapping: columnMapping}),
+    });
+    return saveResp.json();
+  });
+}
+
+function renderZipMemberPicker(requirements, zipFilename, members, container) {
+  clear(container);
+  container.appendChild(el('div', {
+    className: 'placeholder',
+    text: 'Pick which file inside "' + zipFilename + '" holds ' + requirements.label + ':',
+  }));
+  const listBox = el('div', {className: 'table-search-results'});
+  members.forEach(function(member) {
+    const btn = el('button', {className: 'table-item', text: member.filename + ' (' + member.columns.length + ' columns)'});
+    btn.addEventListener('click', function() {
+      renderFileMappingForm(requirements, member.file_id, member.filename, member.columns, member.suggested_mappings, container);
+    });
+    listBox.appendChild(btn);
+  });
+  container.appendChild(listBox);
+}
+
 function uploadFileForMapping(requirements, pickerArea) {
   clear(pickerArea);
 
   pickerArea.appendChild(el('div', {
     className: 'placeholder',
-    text: 'Upload a CSV for ' + requirements.label + ' - its header row will be offered below to map to each required field. No database connection is needed for this.',
+    text: 'Upload a CSV (or a .zip of several CSVs, one per dataset) for ' + requirements.label + ' - a header row will be offered below to map to each required field. No database connection is needed for this.',
   }));
 
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
-  fileInput.accept = '.csv,text/csv';
+  fileInput.accept = '.csv,.zip,text/csv,application/zip';
   pickerArea.appendChild(fileInput);
 
   const uploadBtn = el('button', {className: 'btn btn-primary', text: 'Upload'});
@@ -835,7 +894,7 @@ function uploadFileForMapping(requirements, pickerArea) {
     const file = fileInput.files[0];
     clear(statusArea);
     if (!file) {
-      statusArea.appendChild(el('div', {className: 'error-box', text: 'Choose a CSV file first.'}));
+      statusArea.appendChild(el('div', {className: 'error-box', text: 'Choose a file first.'}));
       return;
     }
 
@@ -845,7 +904,7 @@ function uploadFileForMapping(requirements, pickerArea) {
     const content = await file.arrayBuffer();
     const resp = await fetch('/api/uploads', {
       method: 'POST',
-      headers: {'Content-Type': 'text/csv', 'X-Filename': encodeURIComponent(file.name)},
+      headers: {'Content-Type': file.type || 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name)},
       body: content,
     });
     const data = await resp.json();
@@ -857,18 +916,13 @@ function uploadFileForMapping(requirements, pickerArea) {
       return;
     }
 
-    const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
-    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Map "' + data.filename + '" to ' + requirements.label + ':'}));
-    const formArea = el('div');
-    statusArea.appendChild(formArea);
-    buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
-      const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-file', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({file_id: data.file_id, filename: data.filename, column_mapping: columnMapping}),
-      });
-      return saveResp.json();
-    });
+    if (data.kind === 'zip') {
+      lastZipUpload = {filename: data.filename, members: data.members};
+      renderZipMemberPicker(requirements, data.filename, data.members, statusArea);
+      return;
+    }
+
+    renderFileMappingForm(requirements, data.file_id, data.filename, data.columns, data.suggested_mappings, statusArea);
   });
 }
 
@@ -953,6 +1007,14 @@ def _parse_selection(payload: dict) -> QuerySelection:
         )
 
     return QuerySelection(base_table=base_table, columns=columns, join=join)
+
+
+def _suggested_mappings_for(columns: list[str]) -> dict[str, dict[str, str | None]]:
+    """A starting-point guess per known dataset for a set of real column names
+    (from a table, a query, or an uploaded file), never applied on its own -
+    every caller shows these as editable, pre-filled dropdowns a person still
+    confirms before a mapping is ever saved."""
+    return {requirements.dataset_name: suggest_mapping(columns, requirements) for requirements in ALL_DATASETS}
 
 
 def _dataset_requirements_to_dict(requirements: DatasetRequirements) -> dict:
@@ -1120,13 +1182,7 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             return
 
         column_names = [c.name for c in columns]
-        # A starting-point guess per dataset (e.g. "sku" for a table whose
-        # real column is "item_sku"), never applied on its own - the
-        # mapping UI shows these as editable, pre-filled dropdowns a
-        # person still confirms before Save Mapping is ever called.
-        suggested_mappings = {
-            requirements.dataset_name: suggest_mapping(column_names, requirements) for requirements in ALL_DATASETS
-        }
+        suggested_mappings = _suggested_mappings_for(column_names)
         self._send_json(
             200,
             {
@@ -1226,10 +1282,7 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": f"Could not run that query: {exc}"})
             return
 
-        suggested_mappings = {
-            requirements.dataset_name: suggest_mapping(columns, requirements) for requirements in ALL_DATASETS
-        }
-        self._send_json(200, {"connected": True, "columns": columns, "suggested_mappings": suggested_mappings})
+        self._send_json(200, {"connected": True, "columns": columns, "suggested_mappings": _suggested_mappings_for(columns)})
 
     def _handle_save_mapping_from_query(self, dataset_kind: str, raw_body: bytes) -> None:
         if dataset_kind not in BY_NAME:
@@ -1275,15 +1328,22 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid request: uploaded file is empty"})
             return
 
+        if filename.lower().endswith(".zip"):
+            try:
+                extracted = extract_csvs_from_zip(raw_body)
+            except UnsafeArchiveError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            members = [self._probed_upload(file_id, member_filename) for file_id, member_filename in extracted]
+            self._send_json(200, {"kind": "zip", "filename": filename, "members": members})
+            return
+
         file_id = save_upload(filename, raw_body)
+        self._send_json(200, {"kind": "csv", **self._probed_upload(file_id, filename)})
+
+    def _probed_upload(self, file_id: str, filename: str) -> dict:
         columns = probe_upload_columns(file_id)
-        suggested_mappings = {
-            requirements.dataset_name: suggest_mapping(columns, requirements) for requirements in ALL_DATASETS
-        }
-        self._send_json(
-            200,
-            {"file_id": file_id, "filename": filename, "columns": columns, "suggested_mappings": suggested_mappings},
-        )
+        return {"file_id": file_id, "filename": filename, "columns": columns, "suggested_mappings": _suggested_mappings_for(columns)}
 
     def _handle_save_mapping_from_file(self, dataset_kind: str, raw_body: bytes) -> None:
         if dataset_kind not in BY_NAME:
