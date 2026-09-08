@@ -146,7 +146,7 @@ def test_api_columns_reports_not_found_for_an_empty_table(server):
     assert data == {"connected": True, "found": False, "table": "does_not_exist"}
 
 
-def test_api_columns_returns_columns_and_requirement_checks_when_table_satisfies_inventory(server):
+def test_api_columns_returns_columns_when_table_is_found(server):
     columns = [
         ColumnInfo(name="sku", data_type="text", nullable=False),
         ColumnInfo(name="current_stock", data_type="numeric", nullable=False),
@@ -164,9 +164,6 @@ def test_api_columns_returns_columns_and_requirement_checks_when_table_satisfies
     assert [c["name"] for c in data["columns"]] == [
         "sku", "current_stock", "safety_stock", "daily_demand_rate", "lead_time_days"
     ]
-    by_name = {c["dataset_name"]: c for c in data["requirement_checks"]}
-    assert by_name["inventory"]["satisfied"] is True
-    assert by_name["customer_orders"]["satisfied"] is False
 
 
 def test_api_columns_url_decodes_a_table_name_with_special_characters(server):
@@ -177,7 +174,7 @@ def test_api_columns_url_decodes_a_table_name_with_special_characters(server):
     mock_list_columns.assert_called_once_with("my table")
 
 
-def test_post_preview_returns_rows_sql_and_requirement_checks(server):
+def test_post_preview_returns_rows_and_sql(server):
     columns = [ColumnInfo(name="sku", data_type="text", nullable=False)]
     with patch("data_console.preview_runner.schema_inspector.list_columns", return_value=columns), \
          patch("data_console.preview_runner.fetch_rows", return_value=[{"sku": "SKU-1"}]):
@@ -189,7 +186,6 @@ def test_post_preview_returns_rows_sql_and_requirement_checks(server):
     assert data["row_count"] == 1
     assert data["truncated"] is False
     assert "sku" in data["sql"]
-    assert any(c["dataset_name"] == "inventory" for c in data["requirement_checks"])
 
 
 def test_post_preview_serializes_decimal_and_date_values_that_json_cannot_handle_natively(server):

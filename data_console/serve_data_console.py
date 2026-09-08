@@ -44,7 +44,6 @@ from data_console.mapping_store import DatasetMapping, MappingStore
 from data_console.mapping_suggester import suggest_mapping
 from data_console.preview_runner import run_preview
 from data_console.query_builder import PREVIEW_ROW_LIMIT, InvalidSelectionError, JoinSpec, QuerySelection, SelectedColumn
-from data_console.requirements_check import RequirementCheckResult, check_against_all_known_datasets
 from data_integration.config import MissingConfigError
 from data_integration.connection_profile import SchemaMappingError
 from data_integration.postgres_connector import PostgresIntegrationError
@@ -100,14 +99,6 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   .not-connected code { background: #00000010; padding: 1px 4px; border-radius: 3px; }
   table.col-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 16px; }
   table.col-table th, table.col-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eee; }
-  .req-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-  .req-card { border: 1px solid #eee; border-radius: 6px; padding: 10px 12px; }
-  .req-card.satisfied { border-left: 4px solid #2e7d32; }
-  .req-card.unsatisfied { border-left: 4px solid #c62828; }
-  .req-line { font-size: 12px; margin: 2px 0; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-  .dot-yes { background: #2e7d32; }
-  .dot-no { background: #c62828; }
   .select-section { margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; }
   .col-checkbox-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 0; }
   .btn { padding: 6px 12px; border: 1px solid #1565c0; background: white; color: #1565c0; border-radius: 6px; font-size: 12px; cursor: pointer; margin: 4px 4px 4px 0; }
@@ -215,25 +206,6 @@ function buildRowsTable(rows) {
   return wrapper;
 }
 
-function buildReqGrid(checks) {
-  const grid = el('div', {className: 'req-grid'});
-  checks.forEach(function(check) {
-    const card = el('div', {className: 'req-card ' + (check.satisfied ? 'satisfied' : 'unsatisfied')});
-    const heading = el('strong', {text: check.label});
-    card.appendChild(heading);
-    card.appendChild(document.createTextNode(check.satisfied ? ' - has everything needed' : ' - missing something'));
-    check.required.forEach(function(c) {
-      const line = el('div', {className: 'req-line'});
-      const dot = el('span', {className: 'dot ' + (c.present ? 'dot-yes' : 'dot-no')});
-      line.appendChild(dot);
-      line.appendChild(document.createTextNode(c.name + ' - ' + c.description));
-      card.appendChild(line);
-    });
-    grid.appendChild(card);
-  });
-  return grid;
-}
-
 function buildColumnCheckboxes(tableName, columns, defaultChecked) {
   const container = el('div');
   columns.forEach(function(col) {
@@ -327,9 +299,6 @@ async function selectTable(name) {
     table.appendChild(row);
   });
   detail.appendChild(table);
-
-  detail.appendChild(el('h2', {text: 'Does this match what our checks need?'}));
-  detail.appendChild(buildReqGrid(data.requirement_checks));
 
   detail.appendChild(buildSelectSection(name, data.columns));
 }
@@ -491,9 +460,6 @@ async function runPreview() {
   if (data.truncated) {
     resultArea.appendChild(el('div', {className: 'truncated-note', text: 'Showing the first ' + data.row_count + ' rows - there may be more.'}));
   }
-
-  resultArea.appendChild(el('h2', {text: 'Does this selection match what our checks need?'}));
-  resultArea.appendChild(buildReqGrid(data.requirement_checks));
 }
 
 // --- Map Your Data (Slice 3) ---
@@ -805,22 +771,6 @@ def _parse_selection(payload: dict) -> QuerySelection:
     return QuerySelection(base_table=base_table, columns=columns, join=join)
 
 
-def _requirement_check_to_dict(check: RequirementCheckResult) -> dict:
-    return {
-        "dataset_name": check.dataset_name,
-        "label": check.label,
-        "satisfied": check.satisfied,
-        "required": [
-            {"name": c.name, "description": c.description, "example": c.example, "present": c.present}
-            for c in check.required
-        ],
-        "optional": [
-            {"name": c.name, "description": c.description, "example": c.example, "present": c.present}
-            for c in check.optional
-        ],
-    }
-
-
 def _dataset_requirements_to_dict(requirements: DatasetRequirements) -> dict:
     return {
         "dataset_name": requirements.dataset_name,
@@ -931,9 +881,6 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             return
 
         column_names = [c.name for c in columns]
-        requirement_checks = [
-            _requirement_check_to_dict(check) for check in check_against_all_known_datasets(column_names)
-        ]
         # A starting-point guess per dataset (e.g. "sku" for a table whose
         # real column is "item_sku"), never applied on its own - the
         # mapping UI shows these as editable, pre-filled dropdowns a
@@ -948,7 +895,6 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 "found": True,
                 "table": table_name,
                 "columns": [{"name": c.name, "data_type": c.data_type, "nullable": c.nullable} for c in columns],
-                "requirement_checks": requirement_checks,
                 "suggested_mappings": suggested_mappings,
             },
         )
@@ -974,7 +920,6 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 "rows": result.rows,
                 "row_count": result.row_count,
                 "truncated": result.truncated,
-                "requirement_checks": [_requirement_check_to_dict(c) for c in result.requirement_checks],
             },
         )
 

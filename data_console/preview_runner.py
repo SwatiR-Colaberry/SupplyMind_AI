@@ -15,7 +15,6 @@ from dataclasses import dataclass
 
 from data_console import schema_inspector
 from data_console.query_builder import PREVIEW_ROW_LIMIT, QuerySelection, build_preview_query
-from data_console.requirements_check import RequirementCheckResult, check_against_all_known_datasets
 from data_integration.postgres_connector import fetch_rows
 
 
@@ -25,7 +24,6 @@ class PreviewResult:
     rows: list[dict]
     row_count: int
     truncated: bool  # there may be more matching rows than PREVIEW_ROW_LIMIT actually shown
-    requirement_checks: list[RequirementCheckResult]
 
 
 def _live_schema(tables: set[str]) -> dict[str, set[str]]:
@@ -52,11 +50,9 @@ def run_preview(selection: QuerySelection) -> PreviewResult:
     query = build_preview_query(selection, schema)
     rows = fetch_rows(query)
 
-    combined_columns = sorted({c.column for c in selection.columns})
     return PreviewResult(
         sql=query,
         rows=rows,
         row_count=len(rows),
         truncated=len(rows) == PREVIEW_ROW_LIMIT,
-        requirement_checks=check_against_all_known_datasets(combined_columns),
     )

@@ -40,28 +40,6 @@ def test_run_preview_marks_truncated_when_row_count_hits_the_cap():
     assert result.truncated is True
 
 
-def test_run_preview_includes_requirement_checks_for_the_combined_selected_columns():
-    selection = QuerySelection(
-        base_table="inventory",
-        columns=[
-            SelectedColumn("inventory", "sku"),
-            SelectedColumn("inventory", "current_stock"),
-            SelectedColumn("inventory", "safety_stock"),
-            SelectedColumn("inventory", "daily_demand_rate"),
-            SelectedColumn("inventory", "lead_time_days"),
-        ],
-    )
-
-    with patch(
-        "data_console.preview_runner.schema_inspector.list_columns",
-        return_value=_columns("sku", "current_stock", "safety_stock", "daily_demand_rate", "lead_time_days"),
-    ), patch("data_console.preview_runner.fetch_rows", return_value=[]):
-        result = run_preview(selection)
-
-    by_name = {c.dataset_name: c for c in result.requirement_checks}
-    assert by_name["inventory"].satisfied is True
-
-
 def test_run_preview_fetches_schema_for_both_sides_of_a_join():
     selection = QuerySelection(
         base_table="inventory",
