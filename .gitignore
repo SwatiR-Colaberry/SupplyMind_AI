@@ -18,3 +18,4 @@ mapping_audit_log.jsonl
 control_tower_*.html
 scripts/.local_pgdata/
 data_console/.mappings.json
+data_console/uploads/

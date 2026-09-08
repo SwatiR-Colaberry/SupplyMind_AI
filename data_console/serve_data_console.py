@@ -1,14 +1,17 @@
 """Local browser UI for connecting to, mapping, and browsing a database (data-console).
 
-Covers Slices 1-3 of the agreed build order (same "one step at a time"
+Covers Slices 1-4 of the agreed build order (same "one step at a time"
 rhythm used for chat_interface/serve_chat_ui.py): Slice 1 connects to
 Postgres and browses tables/columns against this repo's three known
 required datasets; Slice 2 adds picking specific columns, joining a
 second table, and a capped preview; Slice 3 adds "Map Your Data" - for
 each of the 3 known datasets, point it at whichever table actually holds
 that data even when its column names differ, using
-data_integration/connection_profile.py's real mapping/validation engine.
-No CSV/Sheets upload, no chat yet - those remain later slices.
+data_integration/connection_profile.py's real mapping/validation engine,
+plus a raw-SQL fallback for a dataset split across more tables than the
+guided picker's single table can reach; Slice 4 adds uploading a CSV file
+as a fourth way to map a dataset, for someone with no live database at
+all. Google Sheets and zip-of-CSVs uploads remain later steps.
 
 Same dependency-free stdlib http.server approach as
 chat_interface/serve_chat_ui.py, for the same reason: no new package, no
@@ -38,6 +41,8 @@ from urllib.parse import unquote
 
 from data_console import schema_inspector
 from data_console.column_requirements import ALL_DATASETS, BY_NAME, DatasetRequirements
+from data_console.file_mapping_service import probe_upload_columns, save_mapping_from_file
+from data_console.file_store import MAX_UPLOAD_BYTES, UnknownUploadError, save_upload
 from data_console.logging_setup import get_logger
 from data_console.mapping_service import (
     clear_mapping,
@@ -71,6 +76,7 @@ _MAPPING_PATH_RE = re.compile(r"^/api/mappings/([^/]+)$")
 _MAPPING_UNAVAILABLE_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/unavailable$")
 _MAPPING_PREVIEW_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/preview$")
 _MAPPING_FROM_QUERY_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/from-query$")
+_MAPPING_FROM_FILE_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/from-file$")
 
 
 def _json_default(value):
@@ -505,7 +511,9 @@ function buildFieldsList(requirements) {
 
 function mappingStatusLine(status) {
   if (status.status === 'mapped') {
-    return status.source_kind === 'query' ? 'Mapped via a custom query' : 'Mapped to "' + status.table + '"';
+    if (status.source_kind === 'query') return 'Mapped via a custom query';
+    if (status.source_kind === 'file') return 'Mapped from uploaded file "' + status.filename + '"';
+    return 'Mapped to "' + status.table + '"';
   }
   if (status.status === 'unavailable') return 'Marked as not available in this database';
   return 'Not mapped yet';
@@ -599,11 +607,21 @@ async function startMapping(requirements) {
   orQueryBtn.addEventListener('click', function() { writeQueryForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orQueryBtn);
 
+  // No database needed at all for this one - a CSV's own header row
+  // stands in for a table's real columns. Kept reachable below even when
+  // '/api/tables' reports not connected (see the early return below),
+  // since a CSV-only setup with no live database is exactly the case
+  // this option exists for.
+  const orUploadBtn = el('button', {className: 'btn-link', text: 'Or upload a CSV file'});
+  orUploadBtn.addEventListener('click', function() { uploadFileForMapping(requirements, pickerArea); });
+  pickerArea.appendChild(orUploadBtn);
+
   const resp = await fetch('/api/tables');
   const data = await resp.json();
   if (!data.connected) {
-    clear(pickerArea);
-    pickerArea.appendChild(el('div', {className: 'not-connected', text: data.message}));
+    searchInput.disabled = true;
+    searchInput.placeholder = 'No database connected';
+    resultsBox.appendChild(el('div', {className: 'not-connected', text: data.message}));
     return;
   }
 
@@ -791,6 +809,69 @@ function writeQueryForMapping(requirements, pickerArea) {
   });
 }
 
+function uploadFileForMapping(requirements, pickerArea) {
+  clear(pickerArea);
+
+  pickerArea.appendChild(el('div', {
+    className: 'placeholder',
+    text: 'Upload a CSV for ' + requirements.label + ' - its header row will be offered below to map to each required field. No database connection is needed for this.',
+  }));
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.csv,text/csv';
+  pickerArea.appendChild(fileInput);
+
+  const uploadBtn = el('button', {className: 'btn btn-primary', text: 'Upload'});
+  const backBtn = el('button', {className: 'btn', text: 'Back to table search'});
+  backBtn.addEventListener('click', function() { startMapping(requirements); });
+  pickerArea.appendChild(uploadBtn);
+  pickerArea.appendChild(backBtn);
+
+  const statusArea = el('div');
+  pickerArea.appendChild(statusArea);
+
+  uploadBtn.addEventListener('click', async function() {
+    const file = fileInput.files[0];
+    clear(statusArea);
+    if (!file) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: 'Choose a CSV file first.'}));
+      return;
+    }
+
+    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Uploading...'}));
+    uploadBtn.disabled = true;
+
+    const content = await file.arrayBuffer();
+    const resp = await fetch('/api/uploads', {
+      method: 'POST',
+      headers: {'Content-Type': 'text/csv', 'X-Filename': encodeURIComponent(file.name)},
+      body: content,
+    });
+    const data = await resp.json();
+    uploadBtn.disabled = false;
+    clear(statusArea);
+
+    if (data.error) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: data.error}));
+      return;
+    }
+
+    const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
+    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Map "' + data.filename + '" to ' + requirements.label + ':'}));
+    const formArea = el('div');
+    statusArea.appendChild(formArea);
+    buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
+      const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-file', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({file_id: data.file_id, filename: data.filename, column_mapping: columnMapping}),
+      });
+      return saveResp.json();
+    });
+  });
+}
+
 async function markUnavailable(datasetName) {
   await fetch('/api/mappings/' + encodeURIComponent(datasetName) + '/unavailable', {method: 'POST'});
   await loadMappingSection();
@@ -893,6 +974,8 @@ def _mapping_status_dict(mapping: DatasetMapping | None) -> dict:
         "source_kind": mapping.source_kind,
         "table": mapping.table,
         "query": mapping.query,
+        "file_id": mapping.file_id,
+        "filename": mapping.filename,
         "column_mapping": mapping.column_mapping,
     }
 
@@ -958,6 +1041,15 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             self._handle_query_columns(raw_body)
             return
 
+        if self.path == "/api/uploads":
+            try:
+                raw_body = self._read_request_body(max_bytes=MAX_UPLOAD_BYTES)
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_upload(raw_body)
+            return
+
         match = _MAPPING_UNAVAILABLE_PATH_RE.match(self.path)
         if match:
             self._handle_mark_unavailable(unquote(match.group(1)))
@@ -971,6 +1063,16 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": f"invalid request: {exc}"})
                 return
             self._handle_save_mapping_from_query(unquote(match.group(1)), raw_body)
+            return
+
+        match = _MAPPING_FROM_FILE_PATH_RE.match(self.path)
+        if match:
+            try:
+                raw_body = self._read_request_body()
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_save_mapping_from_file(unquote(match.group(1)), raw_body)
             return
 
         match = _MAPPING_PATH_RE.match(self.path)
@@ -1161,6 +1263,57 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
 
         self._send_json(200, {"saved": True})
 
+    def _handle_upload(self, raw_body: bytes) -> None:
+        # URL-decoded since a raw HTTP header value can't safely carry an
+        # arbitrary filename (non-ASCII characters, in particular) -
+        # the browser side encodes it with encodeURIComponent() first.
+        filename = unquote(self.headers.get("X-Filename", "")).strip()
+        if not filename:
+            self._send_json(400, {"error": "invalid request: 'X-Filename' header must be set to a non-empty filename"})
+            return
+        if not raw_body:
+            self._send_json(400, {"error": "invalid request: uploaded file is empty"})
+            return
+
+        file_id = save_upload(filename, raw_body)
+        columns = probe_upload_columns(file_id)
+        suggested_mappings = {
+            requirements.dataset_name: suggest_mapping(columns, requirements) for requirements in ALL_DATASETS
+        }
+        self._send_json(
+            200,
+            {"file_id": file_id, "filename": filename, "columns": columns, "suggested_mappings": suggested_mappings},
+        )
+
+    def _handle_save_mapping_from_file(self, dataset_kind: str, raw_body: bytes) -> None:
+        if dataset_kind not in BY_NAME:
+            self._send_json(404, {"error": f"unknown dataset {dataset_kind!r}"})
+            return
+
+        try:
+            payload = json.loads(raw_body or b"{}")
+            file_id = payload.get("file_id")
+            filename = payload.get("filename")
+            if not isinstance(file_id, str) or not file_id:
+                raise ValueError("'file_id' must be a non-empty string")
+            if not isinstance(filename, str) or not filename:
+                raise ValueError("'filename' must be a non-empty string")
+            column_mapping = _parse_column_mapping(payload)
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._send_json(400, {"error": f"invalid request: {exc}"})
+            return
+
+        try:
+            save_mapping_from_file(dataset_kind, file_id, filename, column_mapping)
+        except UnknownUploadError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+        except SchemaMappingError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+
+        self._send_json(200, {"saved": True})
+
     def _handle_mark_unavailable(self, dataset_kind: str) -> None:
         if dataset_kind not in BY_NAME:
             self._send_json(404, {"error": f"unknown dataset {dataset_kind!r}"})
@@ -1210,11 +1363,12 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
         )
         self._send_json(200, {"connected": False, "message": message})
 
-    def _read_request_body(self) -> bytes:
+    def _read_request_body(self, max_bytes: int = MAX_REQUEST_BODY_BYTES) -> bytes:
         """Same guarded read chat_interface/serve_chat_ui.py's _read_request_body() uses, for the
         same reason: a non-numeric Content-Length would otherwise crash with no response at all,
         and a negative one would block self.rfile.read() forever, wedging this single-threaded
-        server for every other client."""
+        server for every other client. `max_bytes` defaults to the small JSON-API cap; the file
+        upload route passes the much larger MAX_UPLOAD_BYTES instead."""
         raw_length = self.headers.get("Content-Length")
         if raw_length is None:
             return b""
@@ -1224,8 +1378,8 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             raise ValueError(f"Content-Length {raw_length!r} is not a valid integer") from exc
         if length < 0:
             raise ValueError(f"Content-Length {length} must not be negative")
-        if length > MAX_REQUEST_BODY_BYTES:
-            raise ValueError(f"Content-Length {length} exceeds the {MAX_REQUEST_BODY_BYTES}-byte limit")
+        if length > max_bytes:
+            raise ValueError(f"Content-Length {length} exceeds the {max_bytes}-byte limit")
         return self.rfile.read(length) if length else b""
 
     def _send_html(self, status: int, body_str: str) -> None:

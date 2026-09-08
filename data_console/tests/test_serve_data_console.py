@@ -67,13 +67,37 @@ def _delete(base_url: str, path: str):
 
 @pytest.fixture
 def isolated_mapping_store(tmp_path):
-    """Points both modules that construct a bare MappingStore() at a throwaway file,
-    so mapping-endpoint tests never touch the real data_console/.mappings.json."""
+    """Points every module that constructs a bare MappingStore() at a throwaway file,
+    so mapping-endpoint tests never touch the real data_console/.mappings.json.
+
+    Each of these is its own `from data_console.mapping_store import MappingStore`
+    name binding - patching one module's binding leaves the others pointed at the
+    real class, so all three have to be patched here, not just the modules the
+    HTTP layer calls directly."""
     test_path = tmp_path / "mappings.json"
     factory = lambda *a, **k: MappingStore(test_path)  # noqa: E731
     with patch("data_console.mapping_service.MappingStore", new=factory), \
+         patch("data_console.file_mapping_service.MappingStore", new=factory), \
          patch("data_console.serve_data_console.MappingStore", new=factory):
         yield test_path
+
+
+@pytest.fixture
+def isolated_uploads_dir(tmp_path):
+    """Points file_store at a throwaway directory, so upload-endpoint tests never
+    touch the real data_console/uploads/."""
+    uploads_path = tmp_path / "uploads"
+    with patch("data_console.file_store.UPLOADS_DIR", uploads_path):
+        yield uploads_path
+
+
+def _post_raw(base_url: str, path: str, body: bytes, headers: dict):
+    req = urllib.request.Request(base_url + path, data=body, headers=headers, method="POST")
+    try:
+        resp = urllib.request.urlopen(req)
+        return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
 
 
 def _post_with_raw_content_length(base_url: str, path: str, content_length: object, body: bytes = b"{}"):
@@ -343,6 +367,8 @@ def test_post_mapping_validates_and_saves_then_shows_up_in_get_mappings(server, 
         "source_kind": "table",
         "table": "acme_inventory",
         "query": None,
+        "file_id": None,
+        "filename": None,
         "column_mapping": {"sku": "item_sku", "current_stock": "on_hand"},
     }
 
@@ -509,6 +535,8 @@ def test_post_mapping_from_query_validates_and_saves_then_shows_up_in_get_mappin
         "source_kind": "query",
         "table": None,
         "query": "SELECT item_sku AS sku FROM acme_inventory",
+        "file_id": None,
+        "filename": None,
         "column_mapping": {"sku": "sku"},
     }
 
@@ -568,3 +596,144 @@ def test_get_mapping_preview_for_a_query_mapping_returns_remapped_rows(server, i
     assert status == 200
     assert data["connected"] is True
     assert data["rows"] == [{"sku": "SKU-1"}]
+
+
+def test_post_upload_returns_file_id_columns_and_suggested_mappings(server, isolated_uploads_dir):
+    csv_bytes = b"item_sku,on_hand\nSKU-1,10\nSKU-2,20\n"
+    status, data = _post_raw(server, "/api/uploads", csv_bytes, {"Content-Type": "text/csv", "X-Filename": "inventory.csv"})
+
+    assert status == 200
+    assert data["filename"] == "inventory.csv"
+    assert data["columns"] == ["item_sku", "on_hand"]
+    assert data["suggested_mappings"]["inventory"]["sku"] == "item_sku"
+    assert data["suggested_mappings"]["inventory"]["current_stock"] == "on_hand"
+    assert (isolated_uploads_dir / f"{data['file_id']}.csv").read_bytes() == csv_bytes
+
+
+def test_post_upload_url_decodes_the_filename_header(server, isolated_uploads_dir):
+    status, data = _post_raw(
+        server, "/api/uploads", b"a,b\n1,2\n", {"Content-Type": "text/csv", "X-Filename": "orders%20data.csv"}
+    )
+    assert status == 200
+    assert data["filename"] == "orders data.csv"
+
+
+def test_post_upload_returns_400_when_filename_header_is_missing(server, isolated_uploads_dir):
+    status, data = _post_raw(server, "/api/uploads", b"a,b\n1,2\n", {"Content-Type": "text/csv"})
+    assert status == 400
+    assert "X-Filename" in data["error"]
+
+
+def test_post_upload_returns_400_when_body_is_empty(server, isolated_uploads_dir):
+    status, data = _post_raw(server, "/api/uploads", b"", {"Content-Type": "text/csv", "X-Filename": "empty.csv"})
+    assert status == 400
+    assert "empty" in data["error"]
+
+
+def test_post_mapping_from_file_validates_and_saves_then_shows_up_in_get_mappings(
+    server, isolated_mapping_store, isolated_uploads_dir
+):
+    _, upload = _post_raw(
+        server,
+        "/api/uploads",
+        b"item_sku,on_hand\nSKU-1,10\n",
+        {"Content-Type": "text/csv", "X-Filename": "inventory.csv"},
+    )
+
+    status, data = _post(
+        server,
+        "/api/mappings/inventory/from-file",
+        {
+            "file_id": upload["file_id"],
+            "filename": upload["filename"],
+            "column_mapping": {"sku": "item_sku", "current_stock": "on_hand", "safety_stock": "on_hand", "daily_demand_rate": "on_hand", "lead_time_days": "on_hand"},
+        },
+    )
+    assert status == 200
+    assert data == {"saved": True}
+
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["inventory"]["status"] == "mapped"
+    assert data["mappings"]["inventory"]["source_kind"] == "file"
+    assert data["mappings"]["inventory"]["file_id"] == upload["file_id"]
+    assert data["mappings"]["inventory"]["filename"] == "inventory.csv"
+
+
+def test_post_mapping_from_file_returns_400_for_an_incomplete_mapping_and_saves_nothing(
+    server, isolated_mapping_store, isolated_uploads_dir
+):
+    _, upload = _post_raw(
+        server, "/api/uploads", b"item_sku,on_hand\nSKU-1,10\n", {"Content-Type": "text/csv", "X-Filename": "inventory.csv"}
+    )
+
+    status, data = _post(
+        server,
+        "/api/mappings/inventory/from-file",
+        {"file_id": upload["file_id"], "filename": upload["filename"], "column_mapping": {"sku": "item_sku"}},
+    )
+    assert status == 400
+    assert "missing a column mapping" in data["error"]
+
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["inventory"] == {"status": "not_mapped"}
+
+
+def test_post_mapping_from_file_returns_404_for_an_unknown_dataset(server, isolated_mapping_store):
+    status, data = _post(
+        server, "/api/mappings/not_a_real_dataset/from-file", {"file_id": "x", "filename": "a.csv", "column_mapping": {"a": "b"}}
+    )
+    assert status == 404
+
+
+def test_post_mapping_from_file_returns_400_when_file_id_is_missing(server, isolated_mapping_store):
+    status, data = _post(
+        server, "/api/mappings/inventory/from-file", {"filename": "a.csv", "column_mapping": {"a": "b"}}
+    )
+    assert status == 400
+    assert "'file_id'" in data["error"]
+
+
+def test_get_mapping_preview_for_a_file_mapping_returns_remapped_rows(
+    server, isolated_mapping_store, isolated_uploads_dir
+):
+    _, upload = _post_raw(
+        server,
+        "/api/uploads",
+        b"order_dt,qty\n2025-01-01,10\n2025-01-02,20\n",
+        {"Content-Type": "text/csv", "X-Filename": "orders.csv"},
+    )
+    _post(
+        server,
+        "/api/mappings/customer_orders/from-file",
+        {
+            "file_id": upload["file_id"],
+            "filename": upload["filename"],
+            "column_mapping": {"order_date": "order_dt", "quantity": "qty"},
+        },
+    )
+
+    status, data = _get(server, "/api/mappings/customer_orders/preview")
+    assert status == 200
+    assert data["connected"] is True
+    assert data["rows"] == [
+        {"order_date": "2025-01-01", "quantity": "10"},
+        {"order_date": "2025-01-02", "quantity": "20"},
+    ]
+
+
+def test_get_mapping_preview_for_a_file_mapping_reports_a_missing_file_as_a_clear_error(
+    server, isolated_mapping_store
+):
+    store = MappingStore(isolated_mapping_store)
+    from data_console.mapping_store import DatasetMapping
+
+    store.save(
+        "inventory",
+        DatasetMapping(
+            status="mapped", file_id="does-not-exist", filename="gone.csv", column_mapping={"sku": "sku"}, source_kind="file"
+        ),
+    )
+
+    status, data = _get(server, "/api/mappings/inventory/preview")
+    assert status == 400
+    assert "does-not-exist" in data["error"]

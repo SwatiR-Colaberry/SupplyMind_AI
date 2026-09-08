@@ -27,10 +27,9 @@ from data_integration.postgres_connector import fetch_columns
 DEFAULT_AUDIT_LOG_PATH = Path(data_console.__file__).resolve().parent / "mapping_audit_log.jsonl"
 
 # A stable, single tenant id - this console maps exactly one connected
-# database at a time (Slice 4's CSV/Sheets sources will need their own
-# story), so there is no real multi-tenant identity to thread through
-# here the way risk_detection's own multi-tenant demo has one per
-# fictitious company.
+# data source at a time (whether Postgres or an uploaded file), so there
+# is no real multi-tenant identity to thread through here the way
+# risk_detection's own multi-tenant demo has one per fictitious company.
 _TENANT_ID = "data_console"
 
 
@@ -125,7 +124,9 @@ class MappingPreviewResult:
 
 def preview_mapping(dataset_kind: str, store: MappingStore | None = None) -> MappingPreviewResult:
     """Raises LookupError if this dataset has no saved mapping to preview,
-    otherwise the same exceptions save_mapping()/save_mapping_from_query() can raise."""
+    otherwise the same exceptions save_mapping()/save_mapping_from_query() can raise
+    (for a "table"/"query" mapping) or file_mapping_service.preview_file_mapping()
+    can raise (for a "file" mapping)."""
     mapping = (store or MappingStore()).get(dataset_kind)
     if mapping is None or mapping.status != "mapped":
         raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
@@ -133,6 +134,18 @@ def preview_mapping(dataset_kind: str, store: MappingStore | None = None) -> Map
         raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
     if mapping.source_kind == "query" and mapping.query is None:
         raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
+    if mapping.source_kind == "file" and mapping.file_id is None:
+        raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
+
+    if mapping.source_kind == "file":
+        # No Postgres connection at all for a file-backed mapping - a
+        # genuinely separate engine, not a branch of the Postgres one
+        # below (see file_mapping_service.py's own module docstring for
+        # why connection_profile.py's Postgres-shaped ConnectionProfile
+        # doesn't fit this case).
+        from data_console.file_mapping_service import preview_file_mapping
+
+        return preview_file_mapping(dataset_kind, mapping)
 
     base_query = _table_query(mapping.table) if mapping.source_kind == "table" else mapping.query
     profile = _build_profile(dataset_kind, base_query, mapping.column_mapping)
