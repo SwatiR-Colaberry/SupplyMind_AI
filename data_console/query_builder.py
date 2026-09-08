@@ -59,7 +59,7 @@ class QuerySelection:
     join: JoinSpec | None = None
 
 
-def _quote_identifier(name: str) -> str:
+def quote_identifier(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
@@ -114,16 +114,16 @@ def build_preview_query(selection: QuerySelection, available_schema: dict[str, s
     """
     validate_selection(selection, available_schema)
 
-    select_list = ", ".join(f"{_quote_identifier(c.table)}.{_quote_identifier(c.column)}" for c in selection.columns)
-    query = f"SELECT {select_list} FROM {_quote_identifier(selection.base_table)}"
+    select_list = ", ".join(f"{quote_identifier(c.table)}.{quote_identifier(c.column)}" for c in selection.columns)
+    query = f"SELECT {select_list} FROM {quote_identifier(selection.base_table)}"
 
     if selection.join is not None:
         join = selection.join
         other_table = join.right_table if join.left_table == selection.base_table else join.left_table
         query += (
-            f" JOIN {_quote_identifier(other_table)}"
-            f" ON {_quote_identifier(join.left_table)}.{_quote_identifier(join.left_column)}"
-            f" = {_quote_identifier(join.right_table)}.{_quote_identifier(join.right_column)}"
+            f" JOIN {quote_identifier(other_table)}"
+            f" ON {quote_identifier(join.left_table)}.{quote_identifier(join.left_column)}"
+            f" = {quote_identifier(join.right_table)}.{quote_identifier(join.right_column)}"
         )
 
     query += f" LIMIT {PREVIEW_ROW_LIMIT}"

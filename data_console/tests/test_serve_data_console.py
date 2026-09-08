@@ -12,10 +12,12 @@ from urllib.parse import urlparse
 
 import pytest
 
+from data_console.mapping_store import MappingStore
 from data_console.query_builder import PREVIEW_ROW_LIMIT
 from data_console.schema_inspector import ColumnInfo
 from data_console.serve_data_console import MAX_REQUEST_BODY_BYTES, DataConsoleHandler
 from data_integration.config import MissingConfigError
+from data_integration.connection_profile import SchemaMappingError
 from data_integration.postgres_connector import PostgresIntegrationError
 from http.server import HTTPServer
 
@@ -52,6 +54,26 @@ def _post(base_url: str, path: str, payload: dict | None = None, raw_body: bytes
         return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read())
+
+
+def _delete(base_url: str, path: str):
+    req = urllib.request.Request(base_url + path, method="DELETE")
+    try:
+        resp = urllib.request.urlopen(req)
+        return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+@pytest.fixture
+def isolated_mapping_store(tmp_path):
+    """Points both modules that construct a bare MappingStore() at a throwaway file,
+    so mapping-endpoint tests never touch the real data_console/.mappings.json."""
+    test_path = tmp_path / "mappings.json"
+    factory = lambda *a, **k: MappingStore(test_path)  # noqa: E731
+    with patch("data_console.mapping_service.MappingStore", new=factory), \
+         patch("data_console.serve_data_console.MappingStore", new=factory):
+        yield test_path
 
 
 def _post_with_raw_content_length(base_url: str, path: str, content_length: object, body: bytes = b"{}"):
@@ -258,3 +280,168 @@ def test_post_preview_oversized_content_length_returns_400(server):
     status, data = _post_with_raw_content_length(server, "/api/preview", MAX_REQUEST_BODY_BYTES + 1)
     assert status == 400
     assert "exceeds" in data["error"]
+
+
+def test_api_columns_includes_suggested_mappings_for_a_differently_named_table(server):
+    # The exact acme_inventory shape from risk_detection's multi-tenant
+    # fixture - the real case that surfaced the need for mapping at all.
+    columns = [
+        ColumnInfo(name="item_sku", data_type="text", nullable=False),
+        ColumnInfo(name="on_hand", data_type="numeric", nullable=False),
+        ColumnInfo(name="min_stock", data_type="numeric", nullable=False),
+        ColumnInfo(name="daily_use", data_type="numeric", nullable=False),
+        ColumnInfo(name="lead_days", data_type="numeric", nullable=False),
+    ]
+    with patch("data_console.schema_inspector.list_columns", return_value=columns):
+        status, data = _get(server, "/api/tables/acme_inventory/columns")
+
+    assert status == 200
+    inventory_suggestions = data["suggested_mappings"]["inventory"]
+    assert inventory_suggestions == {
+        "sku": "item_sku",
+        "current_stock": "on_hand",
+        "safety_stock": "min_stock",
+        "daily_demand_rate": "daily_use",
+        "lead_time_days": "lead_days",
+    }
+
+
+def test_api_datasets_returns_all_three_known_datasets_with_field_descriptions(server):
+    status, data = _get(server, "/api/datasets")
+
+    assert status == 200
+    names = [d["dataset_name"] for d in data["datasets"]]
+    assert names == ["customer_orders", "inventory", "delivery_records"]
+    inventory = next(d for d in data["datasets"] if d["dataset_name"] == "inventory")
+    assert {f["name"] for f in inventory["required"]} == {
+        "sku", "current_stock", "safety_stock", "daily_demand_rate", "lead_time_days"
+    }
+    assert all(f["description"] and f["example"] for f in inventory["required"])
+
+
+def test_api_mappings_starts_with_every_dataset_not_mapped(server, isolated_mapping_store):
+    status, data = _get(server, "/api/mappings")
+
+    assert status == 200
+    assert data["mappings"] == {
+        "customer_orders": {"status": "not_mapped"},
+        "inventory": {"status": "not_mapped"},
+        "delivery_records": {"status": "not_mapped"},
+    }
+
+
+def test_post_mapping_validates_and_saves_then_shows_up_in_get_mappings(server, isolated_mapping_store):
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile"):
+        status, data = _post(
+            server, "/api/mappings/inventory",
+            {"table": "acme_inventory", "column_mapping": {"sku": "item_sku", "current_stock": "on_hand"}},
+        )
+
+    assert status == 200
+    assert data == {"saved": True}
+
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["inventory"] == {
+        "status": "mapped", "table": "acme_inventory", "column_mapping": {"sku": "item_sku", "current_stock": "on_hand"}
+    }
+
+
+def test_post_mapping_returns_400_and_saves_nothing_when_validation_fails(server, isolated_mapping_store):
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile", side_effect=SchemaMappingError("missing required field 'sku'")):
+        status, data = _post(server, "/api/mappings/inventory", {"table": "acme_inventory", "column_mapping": {"current_stock": "on_hand"}})
+
+    assert status == 400
+    assert "missing required field" in data["error"]
+
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["inventory"] == {"status": "not_mapped"}
+
+
+def test_post_mapping_returns_404_for_an_unknown_dataset(server, isolated_mapping_store):
+    status, data = _post(server, "/api/mappings/not_a_real_dataset", {"table": "x", "column_mapping": {"a": "b"}})
+    assert status == 404
+
+
+def test_post_mapping_returns_400_when_table_is_missing(server, isolated_mapping_store):
+    status, data = _post(server, "/api/mappings/inventory", {"column_mapping": {"sku": "sku"}})
+    assert status == 400
+    assert "table" in data["error"]
+
+
+def test_post_mapping_returns_400_when_column_mapping_is_empty(server, isolated_mapping_store):
+    status, data = _post(server, "/api/mappings/inventory", {"table": "inventory", "column_mapping": {}})
+    assert status == 400
+    assert "column_mapping" in data["error"]
+
+
+def test_post_mapping_reports_not_connected_when_config_is_missing(server, isolated_mapping_store):
+    with patch("data_console.mapping_service.load_postgres_config", side_effect=MissingConfigError("SUPPLYMIND_PG_HOST is not set")):
+        status, data = _post(server, "/api/mappings/inventory", {"table": "inventory", "column_mapping": {"sku": "sku"}})
+
+    assert status == 200
+    assert data["connected"] is False
+
+
+def test_post_mark_unavailable_saves_unavailable_status(server, isolated_mapping_store):
+    status, data = _post(server, "/api/mappings/delivery_records/unavailable")
+
+    assert status == 200
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["delivery_records"] == {"status": "unavailable"}
+
+
+def test_delete_mapping_resets_to_not_mapped(server, isolated_mapping_store):
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile"):
+        _post(server, "/api/mappings/inventory", {"table": "inventory", "column_mapping": {"sku": "sku"}})
+
+    status, data = _delete(server, "/api/mappings/inventory")
+    assert status == 200
+
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["inventory"] == {"status": "not_mapped"}
+
+
+def test_get_mapping_preview_returns_400_when_nothing_is_saved(server, isolated_mapping_store):
+    status, data = _get(server, "/api/mappings/inventory/preview")
+    assert status == 400
+    assert "no saved mapping" in data["error"]
+
+
+def test_get_mapping_preview_returns_remapped_rows(server, isolated_mapping_store):
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile"):
+        _post(server, "/api/mappings/inventory", {"table": "acme_inventory", "column_mapping": {"sku": "item_sku"}})
+
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.fetch_profile_data", return_value=[{"sku": "SKU-1"}, {"sku": "SKU-2"}]):
+        status, data = _get(server, "/api/mappings/inventory/preview")
+
+    assert status == 200
+    assert data["connected"] is True
+    assert data["rows"] == [{"sku": "SKU-1"}, {"sku": "SKU-2"}]
+    assert data["row_count"] == 2
+    assert data["truncated"] is False
+
+
+def test_get_mapping_preview_reports_a_schema_change_as_a_clear_error(server, isolated_mapping_store):
+    # Simulates the database changing after a mapping was saved - the
+    # mapped column no longer exists, caught by fetch_profile_data()'s
+    # own internal validate_against_live_schema() call.
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile"):
+        _post(server, "/api/mappings/inventory", {"table": "acme_inventory", "column_mapping": {"sku": "item_sku"}})
+
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.fetch_profile_data", side_effect=SchemaMappingError("mapped column not found")):
+        status, data = _get(server, "/api/mappings/inventory/preview")
+
+    assert status == 400
+    assert "mapped column not found" in data["error"]
+
+
+def test_get_mapping_preview_returns_404_for_an_unknown_dataset(server, isolated_mapping_store):
+    status, data = _get(server, "/api/mappings/not_a_real_dataset/preview")
+    assert status == 404

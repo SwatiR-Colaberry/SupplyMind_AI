@@ -1,11 +1,14 @@
-"""Local browser UI for connecting to and browsing a database (data-console, Slice 1).
+"""Local browser UI for connecting to, mapping, and browsing a database (data-console).
 
-Slice 1 scope only: connect to Postgres, list its tables, and for a
-selected table show its real columns plus how they compare against each of
-this repo's three known required datasets (data_console/column_requirements.py).
-No query building, no joins, no CSV upload, no chat yet - those are later
-slices, same "one step at a time" build order used for
-chat_interface/serve_chat_ui.py.
+Covers Slices 1-3 of the agreed build order (same "one step at a time"
+rhythm used for chat_interface/serve_chat_ui.py): Slice 1 connects to
+Postgres and browses tables/columns against this repo's three known
+required datasets; Slice 2 adds picking specific columns, joining a
+second table, and a capped preview; Slice 3 adds "Map Your Data" - for
+each of the 3 known datasets, point it at whichever table actually holds
+that data even when its column names differ, using
+data_integration/connection_profile.py's real mapping/validation engine.
+No CSV/Sheets upload, no chat yet - those remain later slices.
 
 Same dependency-free stdlib http.server approach as
 chat_interface/serve_chat_ui.py, for the same reason: no new package, no
@@ -34,11 +37,16 @@ from string import Template
 from urllib.parse import unquote
 
 from data_console import schema_inspector
+from data_console.column_requirements import ALL_DATASETS, BY_NAME, DatasetRequirements
 from data_console.logging_setup import get_logger
+from data_console.mapping_service import clear_mapping, mark_unavailable, preview_mapping, save_mapping
+from data_console.mapping_store import DatasetMapping, MappingStore
+from data_console.mapping_suggester import suggest_mapping
 from data_console.preview_runner import run_preview
 from data_console.query_builder import PREVIEW_ROW_LIMIT, InvalidSelectionError, JoinSpec, QuerySelection, SelectedColumn
 from data_console.requirements_check import RequirementCheckResult, check_against_all_known_datasets
 from data_integration.config import MissingConfigError
+from data_integration.connection_profile import SchemaMappingError
 from data_integration.postgres_connector import PostgresIntegrationError
 
 logger = get_logger()
@@ -52,6 +60,9 @@ DEFAULT_PORT = 8766
 MAX_REQUEST_BODY_BYTES = 65536
 
 _COLUMNS_PATH_RE = re.compile(r"^/api/tables/([^/]+)/columns$")
+_MAPPING_PATH_RE = re.compile(r"^/api/mappings/([^/]+)$")
+_MAPPING_UNAVAILABLE_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/unavailable$")
+_MAPPING_PREVIEW_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/preview$")
 
 
 def _json_default(value):
@@ -109,6 +120,23 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   .sql-box { background: #1a1a2e; color: #d6e4ff; padding: 10px 12px; border-radius: 6px; font-size: 11px; overflow-x: auto; margin: 10px 0; white-space: pre-wrap; word-break: break-word; }
   .truncated-note { font-size: 11px; color: #888; margin-top: 4px; }
   .error-box { background: #fdecea; border: 1px solid #f5c2c0; color: #8a1f11; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin: 10px 0; }
+  .mapping-section { margin-bottom: 24px; }
+  .mapping-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .mapping-card { background: white; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .mapping-card.status-mapped { border-left: 4px solid #2e7d32; }
+  .mapping-card.status-not_mapped { border-left: 4px solid #f9a825; }
+  .mapping-card.status-unavailable { border-left: 4px solid #757575; }
+  .mapping-card h3 { font-size: 14px; margin: 0 0 4px; }
+  .mapping-status-line { font-size: 12px; color: #444; margin-bottom: 8px; }
+  .mapping-fields { font-size: 12px; color: #555; margin-bottom: 10px; }
+  .mapping-fields .field-line { margin: 2px 0; }
+  .mapping-fields .field-optional { color: #888; }
+  .search-input { width: 100%; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; margin-bottom: 8px; box-sizing: border-box; }
+  .table-search-results { max-height: 160px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-bottom: 8px; }
+  .mapping-form-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 6px 0; }
+  .mapping-form-row label { width: 150px; flex-shrink: 0; }
+  .mapping-form-row select { flex: 1; }
+  .table-scroll { overflow-x: auto; max-width: 100%; }
 </style>
 </head>
 <body>
@@ -116,11 +144,16 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   <div class="meta">data console - browse what's in your database before selecting anything to analyze</div>
   <div class="intro">
     This page reads what's already in your database and shows it to you plainly - it doesn't change or
-    move anything. Click a table on the left to see its columns, and whether it already has everything
-    one of our checks (Customer Orders, Inventory, Delivery Records) needs. Then pick the columns you
-    want, joining in a second table if what you need is split across two, and preview the result before
-    using it for anything - every preview is capped at $row_limit rows so this page never tries to load
-    your whole database at once.
+    move anything. Start below by pointing each of the 3 things this system needs (Customer Orders,
+    Inventory, Delivery Records) at whichever table in your database actually holds that data, even if
+    its column names are different from ours - you'll see exactly what's required before you have to
+    pick anything. Below that, you can also just browse any table freely, pick columns, join a second
+    table, and preview the result - every preview is capped at $row_limit rows so this page never tries
+    to load your whole database at once.
+  </div>
+  <div class="mapping-section" id="mapping-section">
+    <h2>Map Your Data</h2>
+    <div class="placeholder">Loading...</div>
   </div>
   <div id="content">
     <div class="placeholder">Loading...</div>
@@ -156,6 +189,31 @@ let allTables = [];
 let baseTable = null;
 let baseColumns = [];
 let joinTableColumns = [];
+
+function buildRowsTable(rows) {
+  if (rows.length === 0) {
+    return el('div', {className: 'placeholder', text: 'This matched 0 rows.'});
+  }
+  const columnNames = Object.keys(rows[0]);
+  const table = el('table', {className: 'col-table'});
+  const headerRow = el('tr');
+  columnNames.forEach(function(name) { headerRow.appendChild(el('th', {text: name})); });
+  table.appendChild(headerRow);
+  rows.forEach(function(row) {
+    const tr = el('tr');
+    columnNames.forEach(function(name) {
+      const value = row[name];
+      tr.appendChild(el('td', {text: value === null || value === undefined ? '' : String(value)}));
+    });
+    table.appendChild(tr);
+  });
+  // A row wide enough to overflow its container (a narrow mapping card,
+  // or many joined columns) scrolls horizontally within this wrapper
+  // instead of clipping silently or blowing out the page's own layout.
+  const wrapper = el('div', {className: 'table-scroll'});
+  wrapper.appendChild(table);
+  return wrapper;
+}
 
 function buildReqGrid(checks) {
   const grid = el('div', {className: 'req-grid'});
@@ -429,33 +487,277 @@ async function runPreview() {
   const sqlBox = el('pre', {className: 'sql-box', text: data.sql});
   resultArea.appendChild(sqlBox);
 
-  if (data.rows.length === 0) {
-    resultArea.appendChild(el('div', {className: 'placeholder', text: 'This selection matched 0 rows.'}));
-  } else {
-    const columnNames = Object.keys(data.rows[0]);
-    const rowsTable = el('table', {className: 'col-table'});
-    const headerRow = el('tr');
-    columnNames.forEach(function(name) { headerRow.appendChild(el('th', {text: name})); });
-    rowsTable.appendChild(headerRow);
-    data.rows.forEach(function(row) {
-      const tr = el('tr');
-      columnNames.forEach(function(name) {
-        const value = row[name];
-        tr.appendChild(el('td', {text: value === null || value === undefined ? '' : String(value)}));
-      });
-      rowsTable.appendChild(tr);
-    });
-    resultArea.appendChild(rowsTable);
-    if (data.truncated) {
-      resultArea.appendChild(el('div', {className: 'truncated-note', text: 'Showing the first ' + data.row_count + ' rows - there may be more.'}));
-    }
+  resultArea.appendChild(buildRowsTable(data.rows));
+  if (data.truncated) {
+    resultArea.appendChild(el('div', {className: 'truncated-note', text: 'Showing the first ' + data.row_count + ' rows - there may be more.'}));
   }
 
   resultArea.appendChild(el('h2', {text: 'Does this selection match what our checks need?'}));
   resultArea.appendChild(buildReqGrid(data.requirement_checks));
 }
 
+// --- Map Your Data (Slice 3) ---
+// Turns "browse hundreds of tables" into "fill in 3 slots": for each of
+// the 3 datasets this system knows about, either point it at a table
+// (mapping differently-named columns to the standard names) or say
+// plainly "this data isn't in this database." Every mapping is
+// validated against the real live schema (data_integration/
+// connection_profile.py's validate_profile()) before it's ever saved -
+// nothing here decides a mapping is correct on its own, it only helps
+// fill in the form and calls the same engine that does.
+
+let datasetRequirements = [];
+let currentMappings = {};
+
+function buildFieldsList(requirements) {
+  const container = el('div', {className: 'mapping-fields'});
+  requirements.required.forEach(function(f) {
+    const line = el('div', {className: 'field-line'});
+    line.appendChild(document.createTextNode(f.name + ' (required) - ' + f.description + ' e.g. "' + f.example + '"'));
+    container.appendChild(line);
+  });
+  requirements.optional.forEach(function(f) {
+    const line = el('div', {className: 'field-line field-optional'});
+    line.appendChild(document.createTextNode(f.name + ' (optional) - ' + f.description + ' e.g. "' + f.example + '"'));
+    container.appendChild(line);
+  });
+  return container;
+}
+
+function mappingStatusLine(status) {
+  if (status.status === 'mapped') return 'Mapped to "' + status.table + '"';
+  if (status.status === 'unavailable') return 'Marked as not available in this database';
+  return 'Not mapped yet';
+}
+
+async function loadMappingSection() {
+  const section = document.getElementById('mapping-section');
+  const [datasetsResp, mappingsResp] = await Promise.all([fetch('/api/datasets'), fetch('/api/mappings')]);
+  const datasetsData = await datasetsResp.json();
+  const mappingsData = await mappingsResp.json();
+  datasetRequirements = datasetsData.datasets;
+  currentMappings = mappingsData.mappings;
+  renderMappingCards();
+}
+
+function renderMappingCards() {
+  const section = document.getElementById('mapping-section');
+  clear(section);
+  section.appendChild(el('h2', {text: 'Map Your Data'}));
+
+  const grid = el('div', {className: 'mapping-cards'});
+  datasetRequirements.forEach(function(requirements) {
+    const status = currentMappings[requirements.dataset_name] || {status: 'not_mapped'};
+    const card = el('div', {className: 'mapping-card status-' + status.status});
+    card.appendChild(el('h3', {text: requirements.label}));
+    card.appendChild(el('div', {className: 'mapping-status-line', text: mappingStatusLine(status)}));
+    card.appendChild(buildFieldsList(requirements));
+
+    const actions = el('div');
+    if (status.status === 'mapped') {
+      const previewBtn = el('button', {className: 'btn', text: 'Preview'});
+      previewBtn.addEventListener('click', function() { previewMapping(requirements.dataset_name); });
+      const changeBtn = el('button', {className: 'btn', text: 'Change'});
+      changeBtn.addEventListener('click', function() { startMapping(requirements); });
+      const clearBtn = el('button', {className: 'btn', text: 'Clear'});
+      clearBtn.addEventListener('click', function() { clearMapping(requirements.dataset_name); });
+      actions.appendChild(previewBtn);
+      actions.appendChild(changeBtn);
+      actions.appendChild(clearBtn);
+    } else {
+      const mapBtn = el('button', {className: 'btn btn-primary', text: 'Map this'});
+      mapBtn.addEventListener('click', function() { startMapping(requirements); });
+      actions.appendChild(mapBtn);
+      if (status.status === 'unavailable') {
+        const clearBtn = el('button', {className: 'btn', text: 'Undo "not available"'});
+        clearBtn.addEventListener('click', function() { clearMapping(requirements.dataset_name); });
+        actions.appendChild(clearBtn);
+      } else {
+        const unavailableBtn = el('button', {className: 'btn', text: 'Not available in this database'});
+        unavailableBtn.addEventListener('click', function() { markUnavailable(requirements.dataset_name); });
+        actions.appendChild(unavailableBtn);
+      }
+    }
+    card.appendChild(actions);
+
+    const pickerArea = el('div');
+    pickerArea.id = 'mapping-picker-' + requirements.dataset_name;
+    card.appendChild(pickerArea);
+
+    const resultArea = el('div');
+    resultArea.id = 'mapping-result-' + requirements.dataset_name;
+    card.appendChild(resultArea);
+
+    grid.appendChild(card);
+  });
+  section.appendChild(grid);
+}
+
+async function startMapping(requirements) {
+  const pickerArea = document.getElementById('mapping-picker-' + requirements.dataset_name);
+  clear(pickerArea);
+
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.className = 'search-input';
+  searchInput.placeholder = 'Search your tables...';
+  pickerArea.appendChild(searchInput);
+
+  const resultsBox = el('div', {className: 'table-search-results'});
+  pickerArea.appendChild(resultsBox);
+
+  const cancelBtn = el('button', {className: 'btn', text: 'Cancel'});
+  cancelBtn.addEventListener('click', function() { clear(pickerArea); });
+  pickerArea.appendChild(cancelBtn);
+
+  const resp = await fetch('/api/tables');
+  const data = await resp.json();
+  if (!data.connected) {
+    clear(pickerArea);
+    pickerArea.appendChild(el('div', {className: 'not-connected', text: data.message}));
+    return;
+  }
+
+  function renderResults(filterText) {
+    clear(resultsBox);
+    const matches = data.tables.filter(function(t) { return t.toLowerCase().indexOf(filterText.toLowerCase()) !== -1; });
+    matches.forEach(function(name) {
+      const btn = el('button', {className: 'table-item', text: name});
+      btn.addEventListener('click', function() { pickTableForMapping(requirements, name, pickerArea); });
+      resultsBox.appendChild(btn);
+    });
+    if (matches.length === 0) {
+      resultsBox.appendChild(el('div', {className: 'placeholder', text: 'No tables match "' + filterText + '".'}));
+    }
+  }
+  renderResults('');
+  searchInput.addEventListener('input', function() { renderResults(searchInput.value); });
+  searchInput.focus();
+}
+
+async function pickTableForMapping(requirements, tableName, pickerArea) {
+  clear(pickerArea);
+  pickerArea.appendChild(el('div', {className: 'placeholder', text: 'Loading "' + tableName + '"...'}));
+
+  const data = await fetchColumns(tableName);
+  clear(pickerArea);
+  if (!data.connected) {
+    pickerArea.appendChild(el('div', {className: 'not-connected', text: data.message}));
+    return;
+  }
+  if (!data.found) {
+    pickerArea.appendChild(el('div', {className: 'not-connected', text: 'No columns found for "' + tableName + '".'}));
+    return;
+  }
+
+  const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
+  const columnNames = data.columns.map(function(c) { return c.name; });
+
+  pickerArea.appendChild(el('div', {className: 'placeholder', text: 'Mapping "' + tableName + '" to ' + requirements.label + ':'}));
+
+  const fieldSelects = {};
+  function buildFieldRow(field, required) {
+    const row = el('div', {className: 'mapping-form-row'});
+    row.appendChild(el('label', {text: field.name + (required ? ' *' : '')}));
+    const select = document.createElement('select');
+    const blank = el('option', {text: required ? 'Choose a column...' : '-- none --'});
+    blank.value = '';
+    select.appendChild(blank);
+    columnNames.forEach(function(name) {
+      const opt = el('option', {text: name});
+      opt.value = name;
+      select.appendChild(opt);
+    });
+    const suggestion = suggestions[field.name];
+    if (suggestion) select.value = suggestion;
+    row.appendChild(select);
+    fieldSelects[field.name] = select;
+    return row;
+  }
+  requirements.required.forEach(function(f) { pickerArea.appendChild(buildFieldRow(f, true)); });
+  requirements.optional.forEach(function(f) { pickerArea.appendChild(buildFieldRow(f, false)); });
+
+  const errorArea = el('div');
+  pickerArea.appendChild(errorArea);
+
+  const saveBtn = el('button', {className: 'btn btn-primary', text: 'Save Mapping'});
+  const cancelBtn = el('button', {className: 'btn', text: 'Cancel'});
+  cancelBtn.addEventListener('click', function() { clear(pickerArea); });
+  saveBtn.addEventListener('click', async function() {
+    clear(errorArea);
+    const missingRequired = requirements.required.filter(function(f) { return !fieldSelects[f.name].value; });
+    if (missingRequired.length > 0) {
+      errorArea.appendChild(el('div', {
+        className: 'error-box',
+        text: 'Choose a column for: ' + missingRequired.map(function(f) { return f.name; }).join(', '),
+      }));
+      return;
+    }
+    const columnMapping = {};
+    Object.keys(fieldSelects).forEach(function(fieldName) {
+      const value = fieldSelects[fieldName].value;
+      if (value) columnMapping[fieldName] = value;
+    });
+
+    saveBtn.disabled = true;
+    const resp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({table: tableName, column_mapping: columnMapping}),
+    });
+    const result = await resp.json();
+    saveBtn.disabled = false;
+    clear(errorArea);
+    if (result.error) {
+      errorArea.appendChild(el('div', {className: 'error-box', text: result.error}));
+      return;
+    }
+    if (result.connected === false) {
+      errorArea.appendChild(el('div', {className: 'not-connected', text: result.message}));
+      return;
+    }
+    await loadMappingSection();
+  });
+  pickerArea.appendChild(saveBtn);
+  pickerArea.appendChild(cancelBtn);
+}
+
+async function markUnavailable(datasetName) {
+  await fetch('/api/mappings/' + encodeURIComponent(datasetName) + '/unavailable', {method: 'POST'});
+  await loadMappingSection();
+}
+
+async function clearMapping(datasetName) {
+  await fetch('/api/mappings/' + encodeURIComponent(datasetName), {method: 'DELETE'});
+  await loadMappingSection();
+}
+
+async function previewMapping(datasetName) {
+  const resultArea = document.getElementById('mapping-result-' + datasetName);
+  clear(resultArea);
+  resultArea.appendChild(el('div', {className: 'placeholder', text: 'Loading preview...'}));
+
+  const resp = await fetch('/api/mappings/' + encodeURIComponent(datasetName) + '/preview');
+  const data = await resp.json();
+  clear(resultArea);
+
+  if (data.error) {
+    resultArea.appendChild(el('div', {className: 'error-box', text: data.error}));
+    return;
+  }
+  if (!data.connected) {
+    resultArea.appendChild(el('div', {className: 'not-connected', text: data.message}));
+    return;
+  }
+
+  resultArea.appendChild(buildRowsTable(data.rows));
+  if (data.truncated) {
+    resultArea.appendChild(el('div', {className: 'truncated-note', text: 'Showing the first ' + data.row_count + ' rows - there may be more.'}));
+  }
+}
+
 loadTables();
+loadMappingSection();
 </script>
 </body>
 </html>""")
@@ -519,6 +821,23 @@ def _requirement_check_to_dict(check: RequirementCheckResult) -> dict:
     }
 
 
+def _dataset_requirements_to_dict(requirements: DatasetRequirements) -> dict:
+    return {
+        "dataset_name": requirements.dataset_name,
+        "label": requirements.label,
+        "required": [{"name": c.name, "description": c.description, "example": c.example} for c in requirements.required],
+        "optional": [{"name": c.name, "description": c.description, "example": c.example} for c in requirements.optional],
+    }
+
+
+def _mapping_status_dict(mapping: DatasetMapping | None) -> dict:
+    if mapping is None:
+        return {"status": "not_mapped"}
+    if mapping.status == "unavailable":
+        return {"status": "unavailable"}
+    return {"status": "mapped", "table": mapping.table, "column_mapping": mapping.column_mapping}
+
+
 class DataConsoleHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:  # noqa: A002 - stdlib signature
         pass  # data_console's own JSON logger covers what's worth logging
@@ -530,31 +849,61 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
         if self.path == "/api/tables":
             self._handle_list_tables()
             return
+        if self.path == "/api/datasets":
+            self._handle_list_datasets()
+            return
+        if self.path == "/api/mappings":
+            self._handle_list_mappings()
+            return
         match = _COLUMNS_PATH_RE.match(self.path)
         if match:
             self._handle_list_columns(unquote(match.group(1)))
             return
+        match = _MAPPING_PREVIEW_PATH_RE.match(self.path)
+        if match:
+            self._handle_preview_mapping(unquote(match.group(1)))
+            return
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
-        if self.path != "/api/preview":
-            self._send_json(404, {"error": "not found"})
+        if self.path == "/api/preview":
+            try:
+                raw_body = self._read_request_body()
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            try:
+                payload = json.loads(raw_body or b"{}")
+                selection = _parse_selection(payload)
+            except (json.JSONDecodeError, ValueError) as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_preview(selection)
             return
 
-        try:
-            raw_body = self._read_request_body()
-        except ValueError as exc:
-            self._send_json(400, {"error": f"invalid request: {exc}"})
+        match = _MAPPING_UNAVAILABLE_PATH_RE.match(self.path)
+        if match:
+            self._handle_mark_unavailable(unquote(match.group(1)))
             return
 
-        try:
-            payload = json.loads(raw_body or b"{}")
-            selection = _parse_selection(payload)
-        except (json.JSONDecodeError, ValueError) as exc:
-            self._send_json(400, {"error": f"invalid request: {exc}"})
+        match = _MAPPING_PATH_RE.match(self.path)
+        if match:
+            try:
+                raw_body = self._read_request_body()
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_save_mapping(unquote(match.group(1)), raw_body)
             return
 
-        self._handle_preview(selection)
+        self._send_json(404, {"error": "not found"})
+
+    def do_DELETE(self) -> None:
+        match = _MAPPING_PATH_RE.match(self.path)
+        if match:
+            self._handle_clear_mapping(unquote(match.group(1)))
+            return
+        self._send_json(404, {"error": "not found"})
 
     def _handle_list_tables(self) -> None:
         try:
@@ -585,6 +934,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
         requirement_checks = [
             _requirement_check_to_dict(check) for check in check_against_all_known_datasets(column_names)
         ]
+        # A starting-point guess per dataset (e.g. "sku" for a table whose
+        # real column is "item_sku"), never applied on its own - the
+        # mapping UI shows these as editable, pre-filled dropdowns a
+        # person still confirms before Save Mapping is ever called.
+        suggested_mappings = {
+            requirements.dataset_name: suggest_mapping(column_names, requirements) for requirements in ALL_DATASETS
+        }
         self._send_json(
             200,
             {
@@ -593,6 +949,7 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 "table": table_name,
                 "columns": [{"name": c.name, "data_type": c.data_type, "nullable": c.nullable} for c in columns],
                 "requirement_checks": requirement_checks,
+                "suggested_mappings": suggested_mappings,
             },
         )
 
@@ -619,6 +976,89 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 "truncated": result.truncated,
                 "requirement_checks": [_requirement_check_to_dict(c) for c in result.requirement_checks],
             },
+        )
+
+    def _handle_list_datasets(self) -> None:
+        self._send_json(200, {"datasets": [_dataset_requirements_to_dict(d) for d in ALL_DATASETS]})
+
+    def _handle_list_mappings(self) -> None:
+        store = MappingStore()
+        mappings = {kind: _mapping_status_dict(store.get(kind)) for kind in BY_NAME}
+        self._send_json(200, {"mappings": mappings})
+
+    def _handle_save_mapping(self, dataset_kind: str, raw_body: bytes) -> None:
+        if dataset_kind not in BY_NAME:
+            self._send_json(404, {"error": f"unknown dataset {dataset_kind!r}"})
+            return
+
+        try:
+            payload = json.loads(raw_body or b"{}")
+            table = payload.get("table")
+            column_mapping = payload.get("column_mapping")
+            if not isinstance(table, str) or not table:
+                raise ValueError("'table' must be a non-empty string")
+            if not isinstance(column_mapping, dict) or not column_mapping:
+                raise ValueError("'column_mapping' must be a non-empty object")
+            if not all(isinstance(k, str) and isinstance(v, str) and v for k, v in column_mapping.items()):
+                raise ValueError("'column_mapping' values must be non-empty column-name strings")
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._send_json(400, {"error": f"invalid request: {exc}"})
+            return
+
+        try:
+            save_mapping(dataset_kind, table, column_mapping)
+        except SchemaMappingError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+        except MissingConfigError as exc:
+            self._send_not_connected(str(exc))
+            return
+        except PostgresIntegrationError as exc:
+            self._send_not_connected(f"Could not reach the database: {exc}")
+            return
+
+        self._send_json(200, {"saved": True})
+
+    def _handle_mark_unavailable(self, dataset_kind: str) -> None:
+        if dataset_kind not in BY_NAME:
+            self._send_json(404, {"error": f"unknown dataset {dataset_kind!r}"})
+            return
+        mark_unavailable(dataset_kind)
+        self._send_json(200, {"saved": True})
+
+    def _handle_clear_mapping(self, dataset_kind: str) -> None:
+        if dataset_kind not in BY_NAME:
+            self._send_json(404, {"error": f"unknown dataset {dataset_kind!r}"})
+            return
+        clear_mapping(dataset_kind)
+        self._send_json(200, {"cleared": True})
+
+    def _handle_preview_mapping(self, dataset_kind: str) -> None:
+        if dataset_kind not in BY_NAME:
+            self._send_json(404, {"error": f"unknown dataset {dataset_kind!r}"})
+            return
+
+        try:
+            result = preview_mapping(dataset_kind)
+        except LookupError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+        except SchemaMappingError as exc:
+            # The live schema no longer matches this saved mapping (a
+            # column was renamed/dropped since Save Mapping was clicked) -
+            # a clear, actionable error, distinct from "not connected"
+            # since the database itself is reachable fine.
+            self._send_json(400, {"error": str(exc)})
+            return
+        except MissingConfigError as exc:
+            self._send_not_connected(str(exc))
+            return
+        except PostgresIntegrationError as exc:
+            self._send_not_connected(f"Could not reach the database: {exc}")
+            return
+
+        self._send_json(
+            200, {"connected": True, "rows": result.rows, "row_count": result.row_count, "truncated": result.truncated}
         )
 
     def _send_not_connected(self, message: str) -> None:
