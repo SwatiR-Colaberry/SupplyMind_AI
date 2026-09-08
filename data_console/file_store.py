@@ -23,16 +23,18 @@ from pathlib import Path
 
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 
-# A CSV mapped into one of this console's 3 known datasets is a handful of
-# columns, not a data warehouse export - this cap exists purely so a
-# mistaken multi-gigabyte upload can't exhaust this single-threaded dev
-# server's memory, the same reasoning MAX_REQUEST_BODY_BYTES already
-# applies to every other request body in serve_data_console.py. Also used
-# as the per-member decompressed-size guard for a zip upload (see
-# extract_csvs_from_zip) - a "zip bomb" is a tiny compressed file that
-# expands to something huge, so the raw upload's own size cap alone
-# wouldn't catch it.
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+# A real-world CSV export (e.g. a full orders/inventory dump) can run into
+# the tens of megabytes even though it only has a handful of columns this
+# console actually needs - a plain row-count problem, not a sign of a
+# mistaken upload. This cap exists purely so a truly absurd multi-gigabyte
+# upload can't exhaust this single-threaded dev server's memory, the same
+# reasoning MAX_REQUEST_BODY_BYTES already applies to every other request
+# body in serve_data_console.py - it isn't meant to reject an ordinary large
+# dataset. Also used as the per-member decompressed-size guard for a zip
+# upload (see extract_csvs_from_zip) - a "zip bomb" is a tiny compressed
+# file that expands to something huge, so the raw upload's own size cap
+# alone wouldn't catch it.
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 # This console only ever needs to fill 3 dataset slots - a zip with more
 # members than this is almost certainly not "one CSV per dataset" and is
