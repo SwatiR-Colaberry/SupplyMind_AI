@@ -40,6 +40,30 @@ def test_renders_an_ok_tile_with_headline_confidence_and_findings():
     assert "confidence: 80%" in html
     assert "2 high finding" in html
     assert "high</span>" in html or ">high<" in html
+    # Plain-English takeaway for a first-time reader sits above the fold;
+    # the technical headline is still present but tucked behind <details>.
+    assert "Needs attention soon." in html
+    assert "<summary>Show details</summary>" in html
+
+
+def test_plain_takeaway_covers_every_severity_and_the_error_case():
+    from dashboard.render import _plain_takeaway
+
+    def metric(status, severity):
+        return DashboardMetric(
+            metric_id="x", label="X", status=status, headline="h", source_agent="x", severity=severity
+        )
+
+    assert _plain_takeaway(metric("ok", "critical")) == "Needs immediate attention."
+    assert _plain_takeaway(metric("ok", "high")) == "Needs attention soon."
+    assert _plain_takeaway(metric("ok", "medium")) == "Worth a look."
+    assert _plain_takeaway(metric("ok", "low")) == "Low risk - no action needed."
+    assert _plain_takeaway(metric("ok", None)) == "No risk flagged."
+    assert _plain_takeaway(metric("error", None)) == "This couldn't be checked - see details below."
+    # An error tile's plain takeaway must not be overridden by a stale
+    # severity value - a crashed/errored agent has nothing to be "low
+    # risk" about, so status is checked first regardless of severity.
+    assert _plain_takeaway(metric("error", "critical")) == "This couldn't be checked - see details below."
 
 
 def test_renders_an_error_tile_and_the_notification_banner():
@@ -122,7 +146,7 @@ def test_renders_a_data_sources_section_with_success_and_failure_rows():
 
     html = render_dashboard_html(_snapshot(data_freshness=entries))
 
-    assert "Data Sources" in html
+    assert "Where this data came from" in html
     assert "customer_orders" in html and "500 row(s)" in html
     assert "delivery_records" in html and "connection refused" in html
 
