@@ -339,7 +339,11 @@ def test_post_mapping_validates_and_saves_then_shows_up_in_get_mappings(server, 
 
     status, data = _get(server, "/api/mappings")
     assert data["mappings"]["inventory"] == {
-        "status": "mapped", "table": "acme_inventory", "column_mapping": {"sku": "item_sku", "current_stock": "on_hand"}
+        "status": "mapped",
+        "source_kind": "table",
+        "table": "acme_inventory",
+        "query": None,
+        "column_mapping": {"sku": "item_sku", "current_stock": "on_hand"},
     }
 
 
@@ -441,3 +445,126 @@ def test_get_mapping_preview_reports_a_schema_change_as_a_clear_error(server, is
 def test_get_mapping_preview_returns_404_for_an_unknown_dataset(server, isolated_mapping_store):
     status, data = _get(server, "/api/mappings/not_a_real_dataset/preview")
     assert status == 404
+
+
+def test_post_query_columns_returns_columns_and_suggested_mappings(server):
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.fetch_columns", return_value=["item_sku", "on_hand"]):
+        status, data = _post(server, "/api/query-columns", {"query": "SELECT item_sku, on_hand FROM acme_inventory"})
+
+    assert status == 200
+    assert data["connected"] is True
+    assert data["columns"] == ["item_sku", "on_hand"]
+    assert data["suggested_mappings"]["inventory"]["sku"] == "item_sku"
+    assert data["suggested_mappings"]["inventory"]["current_stock"] == "on_hand"
+
+
+def test_post_query_columns_returns_400_for_an_unsafe_query_without_touching_the_database(server):
+    with patch("data_console.mapping_service.load_postgres_config") as mock_config:
+        status, data = _post(server, "/api/query-columns", {"query": "DROP TABLE inventory"})
+
+    assert status == 400
+    assert "must start with SELECT" in data["error"]
+    mock_config.assert_not_called()
+
+
+def test_post_query_columns_returns_400_when_query_is_missing(server):
+    status, data = _post(server, "/api/query-columns", {})
+    assert status == 400
+    assert "'query'" in data["error"]
+
+
+def test_post_query_columns_reports_not_connected_when_config_is_missing(server):
+    with patch("data_console.mapping_service.load_postgres_config", side_effect=MissingConfigError("no env vars")):
+        status, data = _post(server, "/api/query-columns", {"query": "SELECT 1"})
+
+    assert status == 200
+    assert data["connected"] is False
+
+
+def test_post_query_columns_returns_400_with_the_database_error_for_a_malformed_query(server):
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.fetch_columns", side_effect=PostgresIntegrationError("syntax error")):
+        status, data = _post(server, "/api/query-columns", {"query": "SELECT * FROM not_a_real_table"})
+
+    assert status == 400
+    assert "Could not run that query" in data["error"]
+
+
+def test_post_mapping_from_query_validates_and_saves_then_shows_up_in_get_mappings(server, isolated_mapping_store):
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile"):
+        status, data = _post(
+            server,
+            "/api/mappings/inventory/from-query",
+            {"query": "SELECT item_sku AS sku FROM acme_inventory;", "column_mapping": {"sku": "sku"}},
+        )
+
+    assert status == 200
+    assert data == {"saved": True}
+
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["inventory"] == {
+        "status": "mapped",
+        "source_kind": "query",
+        "table": None,
+        "query": "SELECT item_sku AS sku FROM acme_inventory",
+        "column_mapping": {"sku": "sku"},
+    }
+
+
+def test_post_mapping_from_query_returns_400_for_an_unsafe_query_and_saves_nothing(server, isolated_mapping_store):
+    status, data = _post(
+        server, "/api/mappings/inventory/from-query", {"query": "DELETE FROM inventory", "column_mapping": {"sku": "sku"}}
+    )
+
+    assert status == 400
+    assert "must start with SELECT" in data["error"]
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["inventory"] == {"status": "not_mapped"}
+
+
+def test_post_mapping_from_query_returns_400_when_live_validation_fails(server, isolated_mapping_store):
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile", side_effect=SchemaMappingError("mapped column not found")):
+        status, data = _post(
+            server,
+            "/api/mappings/inventory/from-query",
+            {"query": "SELECT 1 AS sku", "column_mapping": {"sku": "sku"}},
+        )
+
+    assert status == 400
+    assert "mapped column not found" in data["error"]
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["inventory"] == {"status": "not_mapped"}
+
+
+def test_post_mapping_from_query_returns_404_for_an_unknown_dataset(server, isolated_mapping_store):
+    status, data = _post(
+        server, "/api/mappings/not_a_real_dataset/from-query", {"query": "SELECT 1", "column_mapping": {"a": "b"}}
+    )
+    assert status == 404
+
+
+def test_post_mapping_from_query_returns_400_when_query_is_missing(server, isolated_mapping_store):
+    status, data = _post(server, "/api/mappings/inventory/from-query", {"column_mapping": {"a": "b"}})
+    assert status == 400
+    assert "'query'" in data["error"]
+
+
+def test_get_mapping_preview_for_a_query_mapping_returns_remapped_rows(server, isolated_mapping_store):
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile"):
+        _post(
+            server,
+            "/api/mappings/inventory/from-query",
+            {"query": "SELECT item_sku AS sku FROM acme_inventory", "column_mapping": {"sku": "sku"}},
+        )
+
+    with patch("data_console.mapping_service.load_postgres_config"), \
+         patch("data_console.mapping_service.fetch_profile_data", return_value=[{"sku": "SKU-1"}]):
+        status, data = _get(server, "/api/mappings/inventory/preview")
+
+    assert status == 200
+    assert data["connected"] is True
+    assert data["rows"] == [{"sku": "SKU-1"}]

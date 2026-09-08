@@ -39,11 +39,19 @@ from urllib.parse import unquote
 from data_console import schema_inspector
 from data_console.column_requirements import ALL_DATASETS, BY_NAME, DatasetRequirements
 from data_console.logging_setup import get_logger
-from data_console.mapping_service import clear_mapping, mark_unavailable, preview_mapping, save_mapping
+from data_console.mapping_service import (
+    clear_mapping,
+    mark_unavailable,
+    preview_mapping,
+    probe_query_columns,
+    save_mapping,
+    save_mapping_from_query,
+)
 from data_console.mapping_store import DatasetMapping, MappingStore
 from data_console.mapping_suggester import suggest_mapping
 from data_console.preview_runner import run_preview
 from data_console.query_builder import PREVIEW_ROW_LIMIT, InvalidSelectionError, JoinSpec, QuerySelection, SelectedColumn
+from data_console.raw_query_validator import UnsafeQueryError
 from data_integration.config import MissingConfigError
 from data_integration.connection_profile import SchemaMappingError
 from data_integration.postgres_connector import PostgresIntegrationError
@@ -62,6 +70,7 @@ _COLUMNS_PATH_RE = re.compile(r"^/api/tables/([^/]+)/columns$")
 _MAPPING_PATH_RE = re.compile(r"^/api/mappings/([^/]+)$")
 _MAPPING_UNAVAILABLE_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/unavailable$")
 _MAPPING_PREVIEW_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/preview$")
+_MAPPING_FROM_QUERY_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/from-query$")
 
 
 def _json_default(value):
@@ -128,6 +137,10 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   .mapping-form-row label { width: 150px; flex-shrink: 0; }
   .mapping-form-row select { flex: 1; }
   .table-scroll { overflow-x: auto; max-width: 100%; }
+  .sql-input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; margin-bottom: 8px; box-sizing: border-box; font-family: monospace; }
+  .btn-link { background: none; border: none; color: #1565c0; text-decoration: underline; font-size: 12px; cursor: pointer; padding: 4px 0; display: block; }
+  .btn-link:hover { color: #114f96; }
+  .guardrail-note { font-size: 11px; color: #888; margin: 4px 0 8px; }
 </style>
 </head>
 <body>
@@ -491,7 +504,9 @@ function buildFieldsList(requirements) {
 }
 
 function mappingStatusLine(status) {
-  if (status.status === 'mapped') return 'Mapped to "' + status.table + '"';
+  if (status.status === 'mapped') {
+    return status.source_kind === 'query' ? 'Mapped via a custom query' : 'Mapped to "' + status.table + '"';
+  }
   if (status.status === 'unavailable') return 'Marked as not available in this database';
   return 'Not mapped yet';
 }
@@ -576,6 +591,14 @@ async function startMapping(requirements) {
   cancelBtn.addEventListener('click', function() { clear(pickerArea); });
   pickerArea.appendChild(cancelBtn);
 
+  // Escape hatch for a dataset whose required columns are split across
+  // more tables than this table picker (and the guided browse builder's
+  // own single-join cap) can reach - write a SELECT that joins whatever
+  // is needed, and map its result columns instead of a table's.
+  const orQueryBtn = el('button', {className: 'btn-link', text: "Or write your own SQL query"});
+  orQueryBtn.addEventListener('click', function() { writeQueryForMapping(requirements, pickerArea); });
+  pickerArea.appendChild(orQueryBtn);
+
   const resp = await fetch('/api/tables');
   const data = await resp.json();
   if (!data.connected) {
@@ -601,6 +624,72 @@ async function startMapping(requirements) {
   searchInput.focus();
 }
 
+// Shared by both the table-picker path and the write-your-own-query path:
+// one dropdown per required/optional field, pre-filled from `suggestions`
+// but always overridable, blocking Save until every required field has a
+// real column chosen. `onSave(columnMapping)` does the actual POST and
+// returns the parsed JSON response; this function only handles the
+// resulting error/not-connected/success states, identically either way.
+function buildMappingFieldForm(requirements, columnNames, suggestions, formArea, onSave) {
+  const fieldSelects = {};
+  function buildFieldRow(field, required) {
+    const row = el('div', {className: 'mapping-form-row'});
+    row.appendChild(el('label', {text: field.name + (required ? ' *' : '')}));
+    const select = document.createElement('select');
+    const blank = el('option', {text: required ? 'Choose a column...' : '-- none --'});
+    blank.value = '';
+    select.appendChild(blank);
+    columnNames.forEach(function(name) {
+      const opt = el('option', {text: name});
+      opt.value = name;
+      select.appendChild(opt);
+    });
+    const suggestion = suggestions[field.name];
+    if (suggestion) select.value = suggestion;
+    row.appendChild(select);
+    fieldSelects[field.name] = select;
+    return row;
+  }
+  requirements.required.forEach(function(f) { formArea.appendChild(buildFieldRow(f, true)); });
+  requirements.optional.forEach(function(f) { formArea.appendChild(buildFieldRow(f, false)); });
+
+  const errorArea = el('div');
+  formArea.appendChild(errorArea);
+
+  const saveBtn = el('button', {className: 'btn btn-primary', text: 'Save Mapping'});
+  saveBtn.addEventListener('click', async function() {
+    clear(errorArea);
+    const missingRequired = requirements.required.filter(function(f) { return !fieldSelects[f.name].value; });
+    if (missingRequired.length > 0) {
+      errorArea.appendChild(el('div', {
+        className: 'error-box',
+        text: 'Choose a column for: ' + missingRequired.map(function(f) { return f.name; }).join(', '),
+      }));
+      return;
+    }
+    const columnMapping = {};
+    Object.keys(fieldSelects).forEach(function(fieldName) {
+      const value = fieldSelects[fieldName].value;
+      if (value) columnMapping[fieldName] = value;
+    });
+
+    saveBtn.disabled = true;
+    const result = await onSave(columnMapping);
+    saveBtn.disabled = false;
+    clear(errorArea);
+    if (result.error) {
+      errorArea.appendChild(el('div', {className: 'error-box', text: result.error}));
+      return;
+    }
+    if (result.connected === false) {
+      errorArea.appendChild(el('div', {className: 'not-connected', text: result.message}));
+      return;
+    }
+    await loadMappingSection();
+  });
+  formArea.appendChild(saveBtn);
+}
+
 async function pickTableForMapping(requirements, tableName, pickerArea) {
   clear(pickerArea);
   pickerArea.appendChild(el('div', {className: 'placeholder', text: 'Loading "' + tableName + '"...'}));
@@ -621,71 +710,85 @@ async function pickTableForMapping(requirements, tableName, pickerArea) {
 
   pickerArea.appendChild(el('div', {className: 'placeholder', text: 'Mapping "' + tableName + '" to ' + requirements.label + ':'}));
 
-  const fieldSelects = {};
-  function buildFieldRow(field, required) {
-    const row = el('div', {className: 'mapping-form-row'});
-    row.appendChild(el('label', {text: field.name + (required ? ' *' : '')}));
-    const select = document.createElement('select');
-    const blank = el('option', {text: required ? 'Choose a column...' : '-- none --'});
-    blank.value = '';
-    select.appendChild(blank);
-    columnNames.forEach(function(name) {
-      const opt = el('option', {text: name});
-      opt.value = name;
-      select.appendChild(opt);
-    });
-    const suggestion = suggestions[field.name];
-    if (suggestion) select.value = suggestion;
-    row.appendChild(select);
-    fieldSelects[field.name] = select;
-    return row;
-  }
-  requirements.required.forEach(function(f) { pickerArea.appendChild(buildFieldRow(f, true)); });
-  requirements.optional.forEach(function(f) { pickerArea.appendChild(buildFieldRow(f, false)); });
-
-  const errorArea = el('div');
-  pickerArea.appendChild(errorArea);
-
-  const saveBtn = el('button', {className: 'btn btn-primary', text: 'Save Mapping'});
   const cancelBtn = el('button', {className: 'btn', text: 'Cancel'});
   cancelBtn.addEventListener('click', function() { clear(pickerArea); });
-  saveBtn.addEventListener('click', async function() {
-    clear(errorArea);
-    const missingRequired = requirements.required.filter(function(f) { return !fieldSelects[f.name].value; });
-    if (missingRequired.length > 0) {
-      errorArea.appendChild(el('div', {
-        className: 'error-box',
-        text: 'Choose a column for: ' + missingRequired.map(function(f) { return f.name; }).join(', '),
-      }));
-      return;
-    }
-    const columnMapping = {};
-    Object.keys(fieldSelects).forEach(function(fieldName) {
-      const value = fieldSelects[fieldName].value;
-      if (value) columnMapping[fieldName] = value;
-    });
 
-    saveBtn.disabled = true;
+  buildMappingFieldForm(requirements, columnNames, suggestions, pickerArea, async function(columnMapping) {
     const resp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({table: tableName, column_mapping: columnMapping}),
     });
-    const result = await resp.json();
-    saveBtn.disabled = false;
-    clear(errorArea);
-    if (result.error) {
-      errorArea.appendChild(el('div', {className: 'error-box', text: result.error}));
-      return;
-    }
-    if (result.connected === false) {
-      errorArea.appendChild(el('div', {className: 'not-connected', text: result.message}));
-      return;
-    }
-    await loadMappingSection();
+    return resp.json();
   });
-  pickerArea.appendChild(saveBtn);
   pickerArea.appendChild(cancelBtn);
+}
+
+function writeQueryForMapping(requirements, pickerArea) {
+  clear(pickerArea);
+
+  pickerArea.appendChild(el('div', {
+    className: 'placeholder',
+    text: 'Write a SELECT for ' + requirements.label + ' - join whatever tables you need. This will be checked and its result columns offered below to map.',
+  }));
+
+  const textarea = document.createElement('textarea');
+  textarea.className = 'sql-input';
+  textarea.rows = 4;
+  textarea.placeholder = 'SELECT ... FROM ... JOIN ... ON ...';
+  pickerArea.appendChild(textarea);
+
+  pickerArea.appendChild(el('div', {
+    className: 'guardrail-note',
+    text: 'Read-only: must be a single SELECT (or WITH ... SELECT) statement. No inserts, updates, deletes, or other statements.',
+  }));
+
+  const checkBtn = el('button', {className: 'btn btn-primary', text: 'Check columns'});
+  const backBtn = el('button', {className: 'btn', text: 'Back to table search'});
+  backBtn.addEventListener('click', function() { startMapping(requirements); });
+  pickerArea.appendChild(checkBtn);
+  pickerArea.appendChild(backBtn);
+
+  const statusArea = el('div');
+  pickerArea.appendChild(statusArea);
+
+  checkBtn.addEventListener('click', async function() {
+    const queryText = textarea.value;
+    clear(statusArea);
+    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Checking query...'}));
+    checkBtn.disabled = true;
+
+    const resp = await fetch('/api/query-columns', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query: queryText}),
+    });
+    const data = await resp.json();
+    checkBtn.disabled = false;
+    clear(statusArea);
+
+    if (data.error) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: data.error}));
+      return;
+    }
+    if (!data.connected) {
+      statusArea.appendChild(el('div', {className: 'not-connected', text: data.message}));
+      return;
+    }
+
+    const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
+    statusArea.appendChild(el('div', {className: 'placeholder', text: "Map this query's columns to " + requirements.label + ':'}));
+    const formArea = el('div');
+    statusArea.appendChild(formArea);
+    buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
+      const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-query', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query: queryText, column_mapping: columnMapping}),
+      });
+      return saveResp.json();
+    });
+  });
 }
 
 async function markUnavailable(datasetName) {
@@ -785,7 +888,22 @@ def _mapping_status_dict(mapping: DatasetMapping | None) -> dict:
         return {"status": "not_mapped"}
     if mapping.status == "unavailable":
         return {"status": "unavailable"}
-    return {"status": "mapped", "table": mapping.table, "column_mapping": mapping.column_mapping}
+    return {
+        "status": "mapped",
+        "source_kind": mapping.source_kind,
+        "table": mapping.table,
+        "query": mapping.query,
+        "column_mapping": mapping.column_mapping,
+    }
+
+
+def _parse_column_mapping(payload: dict) -> dict[str, str]:
+    column_mapping = payload.get("column_mapping")
+    if not isinstance(column_mapping, dict) or not column_mapping:
+        raise ValueError("'column_mapping' must be a non-empty object")
+    if not all(isinstance(k, str) and isinstance(v, str) and v for k, v in column_mapping.items()):
+        raise ValueError("'column_mapping' values must be non-empty column-name strings")
+    return column_mapping
 
 
 class DataConsoleHandler(BaseHTTPRequestHandler):
@@ -831,9 +949,28 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             self._handle_preview(selection)
             return
 
+        if self.path == "/api/query-columns":
+            try:
+                raw_body = self._read_request_body()
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_query_columns(raw_body)
+            return
+
         match = _MAPPING_UNAVAILABLE_PATH_RE.match(self.path)
         if match:
             self._handle_mark_unavailable(unquote(match.group(1)))
+            return
+
+        match = _MAPPING_FROM_QUERY_PATH_RE.match(self.path)
+        if match:
+            try:
+                raw_body = self._read_request_body()
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_save_mapping_from_query(unquote(match.group(1)), raw_body)
             return
 
         match = _MAPPING_PATH_RE.match(self.path)
@@ -939,19 +1076,79 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(raw_body or b"{}")
             table = payload.get("table")
-            column_mapping = payload.get("column_mapping")
             if not isinstance(table, str) or not table:
                 raise ValueError("'table' must be a non-empty string")
-            if not isinstance(column_mapping, dict) or not column_mapping:
-                raise ValueError("'column_mapping' must be a non-empty object")
-            if not all(isinstance(k, str) and isinstance(v, str) and v for k, v in column_mapping.items()):
-                raise ValueError("'column_mapping' values must be non-empty column-name strings")
+            column_mapping = _parse_column_mapping(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": f"invalid request: {exc}"})
             return
 
         try:
             save_mapping(dataset_kind, table, column_mapping)
+        except SchemaMappingError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+        except MissingConfigError as exc:
+            self._send_not_connected(str(exc))
+            return
+        except PostgresIntegrationError as exc:
+            self._send_not_connected(f"Could not reach the database: {exc}")
+            return
+
+        self._send_json(200, {"saved": True})
+
+    def _handle_query_columns(self, raw_body: bytes) -> None:
+        try:
+            payload = json.loads(raw_body or b"{}")
+            query = payload.get("query")
+            if not isinstance(query, str) or not query.strip():
+                raise ValueError("'query' must be a non-empty string")
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._send_json(400, {"error": f"invalid request: {exc}"})
+            return
+
+        try:
+            columns = probe_query_columns(query)
+        except UnsafeQueryError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+        except MissingConfigError as exc:
+            self._send_not_connected(str(exc))
+            return
+        except PostgresIntegrationError as exc:
+            # Covers a genuine SQL error in the typed query (unknown
+            # column/table, syntax mistake) as well as an unreachable
+            # database - postgres_connector doesn't distinguish the two,
+            # and either way there is nothing more specific to say than
+            # "here's what the database reported."
+            self._send_json(400, {"error": f"Could not run that query: {exc}"})
+            return
+
+        suggested_mappings = {
+            requirements.dataset_name: suggest_mapping(columns, requirements) for requirements in ALL_DATASETS
+        }
+        self._send_json(200, {"connected": True, "columns": columns, "suggested_mappings": suggested_mappings})
+
+    def _handle_save_mapping_from_query(self, dataset_kind: str, raw_body: bytes) -> None:
+        if dataset_kind not in BY_NAME:
+            self._send_json(404, {"error": f"unknown dataset {dataset_kind!r}"})
+            return
+
+        try:
+            payload = json.loads(raw_body or b"{}")
+            query = payload.get("query")
+            if not isinstance(query, str) or not query.strip():
+                raise ValueError("'query' must be a non-empty string")
+            column_mapping = _parse_column_mapping(payload)
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._send_json(400, {"error": f"invalid request: {exc}"})
+            return
+
+        try:
+            save_mapping_from_query(dataset_kind, query, column_mapping)
+        except UnsafeQueryError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
         except SchemaMappingError as exc:
             self._send_json(400, {"error": str(exc)})
             return

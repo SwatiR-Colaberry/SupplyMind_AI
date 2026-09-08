@@ -18,9 +18,11 @@ from pathlib import Path
 import data_console
 from data_console.mapping_store import DatasetMapping, MappingStore
 from data_console.query_builder import PREVIEW_ROW_LIMIT, quote_identifier
+from data_console.raw_query_validator import validate_read_only_query
 from data_integration.audit_trail import AuditStore
 from data_integration.config import load_postgres_config
 from data_integration.connection_profile import ConnectionProfile, fetch_profile_data, validate_profile
+from data_integration.postgres_connector import fetch_columns
 
 DEFAULT_AUDIT_LOG_PATH = Path(data_console.__file__).resolve().parent / "mapping_audit_log.jsonl"
 
@@ -36,8 +38,7 @@ def _audit_store() -> AuditStore:
     return AuditStore(DEFAULT_AUDIT_LOG_PATH)
 
 
-def _build_profile(dataset_kind: str, table: str, column_mapping: dict[str, str]) -> ConnectionProfile:
-    query = f"SELECT * FROM {quote_identifier(table)}"
+def _build_profile(dataset_kind: str, query: str, column_mapping: dict[str, str]) -> ConnectionProfile:
     return ConnectionProfile(
         tenant_id=_TENANT_ID,
         dataset_kind=dataset_kind,
@@ -45,6 +46,10 @@ def _build_profile(dataset_kind: str, table: str, column_mapping: dict[str, str]
         query=query,
         column_mapping=column_mapping,
     )
+
+
+def _table_query(table: str) -> str:
+    return f"SELECT * FROM {quote_identifier(table)}"
 
 
 def save_mapping(dataset_kind: str, table: str, column_mapping: dict[str, str], store: MappingStore | None = None) -> None:
@@ -55,10 +60,46 @@ def save_mapping(dataset_kind: str, table: str, column_mapping: dict[str, str], 
     PostgresIntegrationError - nothing is ever saved unless validation
     against the live database passes.
     """
-    profile = _build_profile(dataset_kind, table, column_mapping)
+    profile = _build_profile(dataset_kind, _table_query(table), column_mapping)
     validate_profile(profile)
     (store or MappingStore()).save(
-        dataset_kind, DatasetMapping(status="mapped", table=table, column_mapping=column_mapping)
+        dataset_kind,
+        DatasetMapping(status="mapped", table=table, column_mapping=column_mapping, source_kind="table"),
+    )
+
+
+def probe_query_columns(raw_query: str) -> list[str]:
+    """Returns the column names `raw_query` would produce, without fetching any rows.
+
+    Raises UnsafeQueryError if the query fails the read-only guardrail
+    (checked before it ever reaches the database), or
+    MissingConfigError/PostgresIntegrationError - including a genuine SQL
+    syntax error, which surfaces through PostgresIntegrationError the same
+    way any other malformed query does. Used to populate the mapping
+    picker's column dropdowns from a typed query the same way
+    schema_inspector.list_columns() populates them from a picked table.
+    """
+    cleaned = validate_read_only_query(raw_query)
+    return fetch_columns(cleaned, config=load_postgres_config())
+
+
+def save_mapping_from_query(
+    dataset_kind: str, raw_query: str, column_mapping: dict[str, str], store: MappingStore | None = None
+) -> None:
+    """The raw-SQL escape hatch: same validate-before-persist contract as save_mapping(),
+    for a dataset whose required columns are split across more tables than the guided
+    picker's single table (and, in the guided flow, no join at all) can reach.
+
+    Raises UnsafeQueryError (query fails the read-only guardrail), SchemaMappingError,
+    MissingConfigError, or PostgresIntegrationError - nothing is ever saved unless both
+    the guardrail and the live-schema validation pass.
+    """
+    cleaned = validate_read_only_query(raw_query)
+    profile = _build_profile(dataset_kind, cleaned, column_mapping)
+    validate_profile(profile)
+    (store or MappingStore()).save(
+        dataset_kind,
+        DatasetMapping(status="mapped", query=cleaned, column_mapping=column_mapping, source_kind="query"),
     )
 
 
@@ -84,22 +125,33 @@ class MappingPreviewResult:
 
 def preview_mapping(dataset_kind: str, store: MappingStore | None = None) -> MappingPreviewResult:
     """Raises LookupError if this dataset has no saved mapping to preview,
-    otherwise the same exceptions save_mapping() can raise."""
+    otherwise the same exceptions save_mapping()/save_mapping_from_query() can raise."""
     mapping = (store or MappingStore()).get(dataset_kind)
-    if mapping is None or mapping.status != "mapped" or mapping.table is None:
+    if mapping is None or mapping.status != "mapped":
+        raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
+    if mapping.source_kind == "table" and mapping.table is None:
+        raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
+    if mapping.source_kind == "query" and mapping.query is None:
         raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
 
-    profile = _build_profile(dataset_kind, mapping.table, mapping.column_mapping)
+    base_query = _table_query(mapping.table) if mapping.source_kind == "table" else mapping.query
+    profile = _build_profile(dataset_kind, base_query, mapping.column_mapping)
     # fetch_profile_data() itself has no LIMIT concept (a real pull is
     # meant to get everything the query asks for) - capped here, the same
     # PREVIEW_ROW_LIMIT every other preview in this console already uses,
     # rather than inside connection_profile.py, which is shared,
-    # pre-existing code this slice doesn't own.
+    # pre-existing code this slice doesn't own. Wrapped as a subquery
+    # (the same technique postgres_connector.fetch_columns() already uses
+    # for its own schema probe) rather than string-concatenated onto the
+    # end - a raw query can legally end in its own ORDER BY, a trailing
+    # comment, or anything else that would make a bare `+ " LIMIT n"`
+    # either invalid or, worse, silently swallowed by a trailing `--`
+    # comment, defeating the row cap entirely.
     capped_profile = ConnectionProfile(
         tenant_id=profile.tenant_id,
         dataset_kind=profile.dataset_kind,
         postgres=profile.postgres,
-        query=f"{profile.query} LIMIT {PREVIEW_ROW_LIMIT}",
+        query=f"SELECT * FROM ({profile.query}) AS mapping_preview LIMIT {PREVIEW_ROW_LIMIT}",
         column_mapping=profile.column_mapping,
     )
     rows = fetch_profile_data(capped_profile, _audit_store())

@@ -21,11 +21,20 @@ DatasetMappingStatus = Literal["mapped", "unavailable"]
 DEFAULT_MAPPINGS_PATH = Path(__file__).resolve().parent / ".mappings.json"
 
 
+DatasetMappingSource = Literal["table", "query"]
+
+
 @dataclass(frozen=True)
 class DatasetMapping:
     status: DatasetMappingStatus
     table: str | None = None
     column_mapping: dict[str, str] = field(default_factory=dict)
+    # "table" (the guided picker - table points straight at a real table) or
+    # "query" (the raw-SQL fallback - table is None, query holds the SQL
+    # text instead). Defaults to "table" so a mapping saved before this
+    # field existed still loads correctly.
+    source_kind: DatasetMappingSource = "table"
+    query: str | None = None
 
 
 class MappingStore:
