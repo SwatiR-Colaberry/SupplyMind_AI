@@ -75,20 +75,32 @@ def _read_text(file_id: str) -> str:
     return path.read_text(encoding="utf-8-sig")
 
 
-def read_upload_columns(file_id: str) -> list[str]:
-    """Returns just the header row - cheap even for a large file, since csv.reader
-    is only asked to yield the first row."""
-    reader = csv.reader(io.StringIO(_read_text(file_id)))
+def parse_csv_columns(text: str) -> list[str]:
+    """Pure - just the header row of raw CSV text, without reading/fetching anything.
+    Cheap even for a large text, since csv.reader is only asked to yield the first row.
+    Shared with sheet_mapping_service.py, whose CSV text comes from a network fetch
+    rather than a saved file - the parsing itself doesn't care where the text came from."""
+    reader = csv.reader(io.StringIO(text))
     try:
         return next(reader)
     except StopIteration:
         return []
 
 
-def read_upload_rows(file_id: str) -> list[dict[str, str]]:
-    """Returns every data row (header row excluded) as a list of dicts keyed by column name."""
-    reader = csv.DictReader(io.StringIO(_read_text(file_id)))
+def parse_csv_rows(text: str) -> list[dict[str, str]]:
+    """Pure - every data row of raw CSV text (header row excluded) as dicts keyed by column name."""
+    reader = csv.DictReader(io.StringIO(text))
     return list(reader)
+
+
+def read_upload_columns(file_id: str) -> list[str]:
+    """Returns just the header row of a saved upload."""
+    return parse_csv_columns(_read_text(file_id))
+
+
+def read_upload_rows(file_id: str) -> list[dict[str, str]]:
+    """Returns every data row (header row excluded) of a saved upload, as dicts keyed by column name."""
+    return parse_csv_rows(_read_text(file_id))
 
 
 def extract_csvs_from_zip(content: bytes) -> list[tuple[str, str]]:

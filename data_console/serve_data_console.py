@@ -57,6 +57,8 @@ from data_console.mapping_suggester import suggest_mapping
 from data_console.preview_runner import run_preview
 from data_console.query_builder import PREVIEW_ROW_LIMIT, InvalidSelectionError, JoinSpec, QuerySelection, SelectedColumn
 from data_console.raw_query_validator import UnsafeQueryError
+from data_console.sheet_fetcher import InvalidSheetUrlError, SheetFetchError
+from data_console.sheet_mapping_service import probe_sheet_columns, save_mapping_from_sheet
 from data_integration.config import MissingConfigError
 from data_integration.connection_profile import SchemaMappingError
 from data_integration.postgres_connector import PostgresIntegrationError
@@ -77,6 +79,7 @@ _MAPPING_UNAVAILABLE_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/unavailable$"
 _MAPPING_PREVIEW_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/preview$")
 _MAPPING_FROM_QUERY_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/from-query$")
 _MAPPING_FROM_FILE_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/from-file$")
+_MAPPING_FROM_SHEET_PATH_RE = re.compile(r"^/api/mappings/([^/]+)/from-sheet$")
 
 
 def _json_default(value):
@@ -513,6 +516,7 @@ function mappingStatusLine(status) {
   if (status.status === 'mapped') {
     if (status.source_kind === 'query') return 'Mapped via a custom query';
     if (status.source_kind === 'file') return 'Mapped from uploaded file "' + status.filename + '"';
+    if (status.source_kind === 'sheet') return 'Mapped from a Google Sheet link';
     return 'Mapped to "' + status.table + '"';
   }
   if (status.status === 'unavailable') return 'Marked as not available in this database';
@@ -633,6 +637,13 @@ async function startMapping(requirements) {
     });
     pickerArea.appendChild(orZipBtn);
   }
+
+  // Also no database needed - a public Google Sheets CSV link is fetched
+  // fresh on every check/preview, so editing the sheet later shows up
+  // here too, unlike an uploaded file's frozen snapshot.
+  const orSheetBtn = el('button', {className: 'btn-link', text: 'Or paste a Google Sheets link'});
+  orSheetBtn.addEventListener('click', function() { pasteSheetLinkForMapping(requirements, pickerArea); });
+  pickerArea.appendChild(orSheetBtn);
 
   const resp = await fetch('/api/tables');
   const data = await resp.json();
@@ -926,6 +937,71 @@ function uploadFileForMapping(requirements, pickerArea) {
   });
 }
 
+function pasteSheetLinkForMapping(requirements, pickerArea) {
+  clear(pickerArea);
+
+  pickerArea.appendChild(el('div', {
+    className: 'placeholder',
+    text: 'Paste a Google Sheets CSV link for ' + requirements.label +
+      ' (File > Share > Publish to web, pick the specific tab, choose CSV format). ' +
+      'No database connection is needed for this, and the sheet is read fresh every time it is checked or previewed - editing it later shows up here too.',
+  }));
+
+  const urlInput = document.createElement('input');
+  urlInput.type = 'text';
+  urlInput.className = 'search-input';
+  urlInput.placeholder = 'https://docs.google.com/spreadsheets/d/.../pub?output=csv';
+  pickerArea.appendChild(urlInput);
+
+  const checkBtn = el('button', {className: 'btn btn-primary', text: 'Check link'});
+  const backBtn = el('button', {className: 'btn', text: 'Back to table search'});
+  backBtn.addEventListener('click', function() { startMapping(requirements); });
+  pickerArea.appendChild(checkBtn);
+  pickerArea.appendChild(backBtn);
+
+  const statusArea = el('div');
+  pickerArea.appendChild(statusArea);
+
+  checkBtn.addEventListener('click', async function() {
+    const url = urlInput.value.trim();
+    clear(statusArea);
+    if (!url) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: 'Paste a link first.'}));
+      return;
+    }
+
+    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Checking link...'}));
+    checkBtn.disabled = true;
+
+    const resp = await fetch('/api/sheet-columns', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: url}),
+    });
+    const data = await resp.json();
+    checkBtn.disabled = false;
+    clear(statusArea);
+
+    if (data.error) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: data.error}));
+      return;
+    }
+
+    const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
+    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Map this sheet to ' + requirements.label + ':'}));
+    const formArea = el('div');
+    statusArea.appendChild(formArea);
+    buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
+      const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-sheet', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url: url, column_mapping: columnMapping}),
+      });
+      return saveResp.json();
+    });
+  });
+}
+
 async function markUnavailable(datasetName) {
   await fetch('/api/mappings/' + encodeURIComponent(datasetName) + '/unavailable', {method: 'POST'});
   await loadMappingSection();
@@ -1038,6 +1114,7 @@ def _mapping_status_dict(mapping: DatasetMapping | None) -> dict:
         "query": mapping.query,
         "file_id": mapping.file_id,
         "filename": mapping.filename,
+        "sheet_url": mapping.sheet_url,
         "column_mapping": mapping.column_mapping,
     }
 
@@ -1112,6 +1189,15 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             self._handle_upload(raw_body)
             return
 
+        if self.path == "/api/sheet-columns":
+            try:
+                raw_body = self._read_request_body()
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_sheet_columns(raw_body)
+            return
+
         match = _MAPPING_UNAVAILABLE_PATH_RE.match(self.path)
         if match:
             self._handle_mark_unavailable(unquote(match.group(1)))
@@ -1135,6 +1221,16 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": f"invalid request: {exc}"})
                 return
             self._handle_save_mapping_from_file(unquote(match.group(1)), raw_body)
+            return
+
+        match = _MAPPING_FROM_SHEET_PATH_RE.match(self.path)
+        if match:
+            try:
+                raw_body = self._read_request_body()
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_save_mapping_from_sheet(unquote(match.group(1)), raw_body)
             return
 
         match = _MAPPING_PATH_RE.match(self.path)
@@ -1374,6 +1470,50 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
 
         self._send_json(200, {"saved": True})
 
+    def _handle_sheet_columns(self, raw_body: bytes) -> None:
+        try:
+            payload = json.loads(raw_body or b"{}")
+            url = payload.get("url")
+            if not isinstance(url, str) or not url.strip():
+                raise ValueError("'url' must be a non-empty string")
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._send_json(400, {"error": f"invalid request: {exc}"})
+            return
+
+        try:
+            columns = probe_sheet_columns(url)
+        except (InvalidSheetUrlError, SheetFetchError) as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+
+        self._send_json(200, {"connected": True, "columns": columns, "suggested_mappings": _suggested_mappings_for(columns)})
+
+    def _handle_save_mapping_from_sheet(self, dataset_kind: str, raw_body: bytes) -> None:
+        if dataset_kind not in BY_NAME:
+            self._send_json(404, {"error": f"unknown dataset {dataset_kind!r}"})
+            return
+
+        try:
+            payload = json.loads(raw_body or b"{}")
+            url = payload.get("url")
+            if not isinstance(url, str) or not url.strip():
+                raise ValueError("'url' must be a non-empty string")
+            column_mapping = _parse_column_mapping(payload)
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._send_json(400, {"error": f"invalid request: {exc}"})
+            return
+
+        try:
+            save_mapping_from_sheet(dataset_kind, url, column_mapping)
+        except (InvalidSheetUrlError, SheetFetchError) as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+        except SchemaMappingError as exc:
+            self._send_json(400, {"error": str(exc)})
+            return
+
+        self._send_json(200, {"saved": True})
+
     def _handle_mark_unavailable(self, dataset_kind: str) -> None:
         if dataset_kind not in BY_NAME:
             self._send_json(404, {"error": f"unknown dataset {dataset_kind!r}"})
@@ -1403,6 +1543,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             # column was renamed/dropped since Save Mapping was clicked) -
             # a clear, actionable error, distinct from "not connected"
             # since the database itself is reachable fine.
+            self._send_json(400, {"error": str(exc)})
+            return
+        except (InvalidSheetUrlError, SheetFetchError) as exc:
+            # A sheet-backed mapping whose link stopped working since Save
+            # Mapping (sharing revoked, sheet deleted) - same "clear,
+            # actionable error" treatment as a schema change above, not a
+            # "not connected" banner, since there is no database here at all.
             self._send_json(400, {"error": str(exc)})
             return
         except MissingConfigError as exc:

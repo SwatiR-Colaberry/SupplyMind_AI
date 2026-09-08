@@ -125,8 +125,9 @@ class MappingPreviewResult:
 def preview_mapping(dataset_kind: str, store: MappingStore | None = None) -> MappingPreviewResult:
     """Raises LookupError if this dataset has no saved mapping to preview,
     otherwise the same exceptions save_mapping()/save_mapping_from_query() can raise
-    (for a "table"/"query" mapping) or file_mapping_service.preview_file_mapping()
-    can raise (for a "file" mapping)."""
+    (for a "table"/"query" mapping), file_mapping_service.preview_file_mapping() can
+    raise (for a "file" mapping), or sheet_mapping_service.preview_sheet_mapping()
+    can raise (for a "sheet" mapping)."""
     mapping = (store or MappingStore()).get(dataset_kind)
     if mapping is None or mapping.status != "mapped":
         raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
@@ -136,16 +137,21 @@ def preview_mapping(dataset_kind: str, store: MappingStore | None = None) -> Map
         raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
     if mapping.source_kind == "file" and mapping.file_id is None:
         raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
+    if mapping.source_kind == "sheet" and mapping.sheet_url is None:
+        raise LookupError(f"{dataset_kind!r} has no saved mapping to preview")
 
+    # No Postgres connection at all for a file- or sheet-backed mapping -
+    # both are genuinely separate engines, not branches of the Postgres one
+    # below (see each module's own docstring for why connection_profile.py's
+    # Postgres-shaped ConnectionProfile doesn't fit either case).
     if mapping.source_kind == "file":
-        # No Postgres connection at all for a file-backed mapping - a
-        # genuinely separate engine, not a branch of the Postgres one
-        # below (see file_mapping_service.py's own module docstring for
-        # why connection_profile.py's Postgres-shaped ConnectionProfile
-        # doesn't fit this case).
         from data_console.file_mapping_service import preview_file_mapping
 
         return preview_file_mapping(dataset_kind, mapping)
+    if mapping.source_kind == "sheet":
+        from data_console.sheet_mapping_service import preview_sheet_mapping
+
+        return preview_sheet_mapping(dataset_kind, mapping)
 
     base_query = _table_query(mapping.table) if mapping.source_kind == "table" else mapping.query
     profile = _build_profile(dataset_kind, base_query, mapping.column_mapping)

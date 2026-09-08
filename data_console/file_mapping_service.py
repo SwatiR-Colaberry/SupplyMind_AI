@@ -25,9 +25,10 @@ import uuid
 from data_console import file_store
 from data_console.mapping_service import DEFAULT_AUDIT_LOG_PATH, MappingPreviewResult
 from data_console.mapping_store import DatasetMapping, MappingStore
+from data_console.mapping_validation import validate_column_mapping
 from data_console.query_builder import PREVIEW_ROW_LIMIT
 from data_integration.audit_trail import AuditStore
-from data_integration.connection_profile import REQUIRED_FIELDS_BY_DATASET_KIND, SchemaMappingError, remap_rows
+from data_integration.connection_profile import remap_rows
 
 # Same stable single-tenant id mapping_service.py uses for its own audit
 # records - duplicated rather than imported since it's module-private
@@ -50,23 +51,6 @@ def probe_upload_columns(file_id: str) -> list[str]:
     return file_store.read_upload_columns(file_id)
 
 
-def _validate_column_mapping(dataset_kind: str, real_columns: list[str], column_mapping: dict[str, str]) -> None:
-    required = REQUIRED_FIELDS_BY_DATASET_KIND[dataset_kind]
-    missing = [f for f in required if not column_mapping.get(f)]
-    if missing:
-        raise SchemaMappingError(
-            f"dataset {dataset_kind!r} is missing a column mapping for required field(s): {', '.join(missing)}"
-        )
-    real_column_set = set(real_columns)
-    not_found = [
-        f"{canonical} -> '{actual}'" for canonical, actual in column_mapping.items() if actual not in real_column_set
-    ]
-    if not_found:
-        raise SchemaMappingError(
-            f"dataset {dataset_kind!r}: mapped column(s) not found in the uploaded file: {', '.join(not_found)}"
-        )
-
-
 def save_mapping_from_file(
     dataset_kind: str, file_id: str, filename: str, column_mapping: dict[str, str], store: MappingStore | None = None
 ) -> None:
@@ -78,7 +62,7 @@ def save_mapping_from_file(
     validate-before-persist contract every other source kind follows.
     """
     real_columns = file_store.read_upload_columns(file_id)
-    _validate_column_mapping(dataset_kind, real_columns, column_mapping)
+    validate_column_mapping(dataset_kind, real_columns, column_mapping)
     (store or MappingStore()).save(
         dataset_kind,
         DatasetMapping(
@@ -95,7 +79,7 @@ def preview_file_mapping(dataset_kind: str, mapping: DatasetMapping) -> MappingP
     Raises SchemaMappingError or UnknownUploadError.
     """
     real_columns = file_store.read_upload_columns(mapping.file_id)
-    _validate_column_mapping(dataset_kind, real_columns, mapping.column_mapping)
+    validate_column_mapping(dataset_kind, real_columns, mapping.column_mapping)
 
     raw_rows = file_store.read_upload_rows(mapping.file_id)
     remapped = remap_rows(raw_rows, mapping.column_mapping)

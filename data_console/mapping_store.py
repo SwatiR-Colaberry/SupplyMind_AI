@@ -21,7 +21,7 @@ DatasetMappingStatus = Literal["mapped", "unavailable"]
 DEFAULT_MAPPINGS_PATH = Path(__file__).resolve().parent / ".mappings.json"
 
 
-DatasetMappingSource = Literal["table", "query", "file"]
+DatasetMappingSource = Literal["table", "query", "file", "sheet"]
 
 
 @dataclass(frozen=True)
@@ -30,16 +30,18 @@ class DatasetMapping:
     table: str | None = None
     column_mapping: dict[str, str] = field(default_factory=dict)
     # "table" (the guided picker - table points straight at a real table),
-    # "query" (the raw-SQL fallback - query holds the SQL text), or "file"
-    # (an uploaded CSV - file_id points at the saved upload, filename is
-    # kept alongside purely for display so a status line doesn't need a
-    # second lookup into the upload store just to name the file back to a
-    # person). Defaults to "table" so a mapping saved before these fields
-    # existed still loads correctly.
+    # "query" (the raw-SQL fallback - query holds the SQL text), "file" (an
+    # uploaded CSV - file_id points at the saved upload, filename is kept
+    # alongside purely for display), or "sheet" (a public Google Sheets CSV
+    # link - sheet_url is fetched fresh on every probe/validate/preview,
+    # never saved locally, since the whole point of a live sheet is that
+    # editing it later should show up here too). Defaults to "table" so a
+    # mapping saved before these fields existed still loads correctly.
     source_kind: DatasetMappingSource = "table"
     query: str | None = None
     file_id: str | None = None
     filename: str | None = None
+    sheet_url: str | None = None
 
 
 class MappingStore:

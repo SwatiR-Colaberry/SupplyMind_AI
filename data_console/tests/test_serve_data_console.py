@@ -74,12 +74,14 @@ def isolated_mapping_store(tmp_path):
 
     Each of these is its own `from data_console.mapping_store import MappingStore`
     name binding - patching one module's binding leaves the others pointed at the
-    real class, so all three have to be patched here, not just the modules the
-    HTTP layer calls directly."""
+    real class, so every one of them has to be patched here, not just the modules
+    the HTTP layer calls directly. (This exact gap already bit file_mapping_service
+    once this session - sheet_mapping_service has the same import shape.)"""
     test_path = tmp_path / "mappings.json"
     factory = lambda *a, **k: MappingStore(test_path)  # noqa: E731
     with patch("data_console.mapping_service.MappingStore", new=factory), \
          patch("data_console.file_mapping_service.MappingStore", new=factory), \
+         patch("data_console.sheet_mapping_service.MappingStore", new=factory), \
          patch("data_console.serve_data_console.MappingStore", new=factory):
         yield test_path
 
@@ -379,6 +381,7 @@ def test_post_mapping_validates_and_saves_then_shows_up_in_get_mappings(server, 
         "query": None,
         "file_id": None,
         "filename": None,
+        "sheet_url": None,
         "column_mapping": {"sku": "item_sku", "current_stock": "on_hand"},
     }
 
@@ -547,6 +550,7 @@ def test_post_mapping_from_query_validates_and_saves_then_shows_up_in_get_mappin
         "query": "SELECT item_sku AS sku FROM acme_inventory",
         "file_id": None,
         "filename": None,
+        "sheet_url": None,
         "column_mapping": {"sku": "sku"},
     }
 
@@ -779,3 +783,128 @@ def test_get_mapping_preview_for_a_file_mapping_reports_a_missing_file_as_a_clea
     status, data = _get(server, "/api/mappings/inventory/preview")
     assert status == 400
     assert "does-not-exist" in data["error"]
+
+
+_SHEET_URL = "https://docs.google.com/spreadsheets/d/abc/pub?gid=0&single=true&output=csv"
+
+
+def test_post_sheet_columns_returns_columns_and_suggested_mappings(server):
+    with patch("data_console.sheet_mapping_service.fetch_sheet_csv", return_value=b"item_sku,on_hand\nSKU-1,10\n"):
+        status, data = _post(server, "/api/sheet-columns", {"url": _SHEET_URL})
+
+    assert status == 200
+    assert data["connected"] is True
+    assert data["columns"] == ["item_sku", "on_hand"]
+    assert data["suggested_mappings"]["inventory"]["sku"] == "item_sku"
+
+
+def test_post_sheet_columns_returns_400_for_a_non_google_url(server):
+    # Exercises the real fetch_sheet_csv() end to end (nothing mocked) -
+    # its own host-validation must reject this before any network call is
+    # even attempted. test_sheet_fetcher.py separately proves urlopen()
+    # itself is never called for a rejected host; not re-asserted here
+    # since patching urllib.request.urlopen globally would also intercept
+    # this test's own HTTP client talking to the local test server.
+    status, data = _post(server, "/api/sheet-columns", {"url": "https://example.com/data.csv"})
+
+    assert status == 400
+    assert "docs.google.com" in data["error"]
+
+
+def test_post_sheet_columns_returns_400_when_the_link_is_not_actually_public(server):
+    from data_console.sheet_fetcher import SheetFetchError
+
+    with patch("data_console.sheet_mapping_service.fetch_sheet_csv", side_effect=SheetFetchError("not public")):
+        status, data = _post(server, "/api/sheet-columns", {"url": _SHEET_URL})
+
+    assert status == 400
+    assert "not public" in data["error"]
+
+
+def test_post_sheet_columns_returns_400_when_url_is_missing(server):
+    status, data = _post(server, "/api/sheet-columns", {})
+    assert status == 400
+    assert "'url'" in data["error"]
+
+
+def test_post_mapping_from_sheet_validates_and_saves_then_shows_up_in_get_mappings(server, isolated_mapping_store):
+    with patch("data_console.sheet_mapping_service.fetch_sheet_csv", return_value=b"order_dt,qty\n2025-01-01,10\n"):
+        status, data = _post(
+            server,
+            "/api/mappings/customer_orders/from-sheet",
+            {"url": _SHEET_URL, "column_mapping": {"order_date": "order_dt", "quantity": "qty"}},
+        )
+
+    assert status == 200
+    assert data == {"saved": True}
+
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["customer_orders"] == {
+        "status": "mapped",
+        "source_kind": "sheet",
+        "table": None,
+        "query": None,
+        "file_id": None,
+        "filename": None,
+        "sheet_url": _SHEET_URL,
+        "column_mapping": {"order_date": "order_dt", "quantity": "qty"},
+    }
+
+
+def test_post_mapping_from_sheet_returns_400_for_an_incomplete_mapping_and_saves_nothing(server, isolated_mapping_store):
+    with patch("data_console.sheet_mapping_service.fetch_sheet_csv", return_value=b"order_dt,qty\n2025-01-01,10\n"):
+        status, data = _post(
+            server,
+            "/api/mappings/customer_orders/from-sheet",
+            {"url": _SHEET_URL, "column_mapping": {"order_date": "order_dt"}},
+        )
+
+    assert status == 400
+    assert "missing a column mapping" in data["error"]
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["customer_orders"] == {"status": "not_mapped"}
+
+
+def test_post_mapping_from_sheet_returns_404_for_an_unknown_dataset(server, isolated_mapping_store):
+    status, data = _post(
+        server, "/api/mappings/not_a_real_dataset/from-sheet", {"url": _SHEET_URL, "column_mapping": {"a": "b"}}
+    )
+    assert status == 404
+
+
+def test_post_mapping_from_sheet_returns_400_when_url_is_missing(server, isolated_mapping_store):
+    status, data = _post(server, "/api/mappings/customer_orders/from-sheet", {"column_mapping": {"a": "b"}})
+    assert status == 400
+    assert "'url'" in data["error"]
+
+
+def test_get_mapping_preview_for_a_sheet_mapping_returns_remapped_rows(server, isolated_mapping_store):
+    with patch("data_console.sheet_mapping_service.fetch_sheet_csv", return_value=b"order_dt,qty\n2025-01-01,10\n"):
+        _post(
+            server,
+            "/api/mappings/customer_orders/from-sheet",
+            {"url": _SHEET_URL, "column_mapping": {"order_date": "order_dt", "quantity": "qty"}},
+        )
+
+        status, data = _get(server, "/api/mappings/customer_orders/preview")
+
+    assert status == 200
+    assert data["connected"] is True
+    assert data["rows"] == [{"order_date": "2025-01-01", "quantity": "10"}]
+
+
+def test_get_mapping_preview_for_a_sheet_mapping_reports_a_broken_link_as_a_clear_error(server, isolated_mapping_store):
+    from data_console.sheet_fetcher import SheetFetchError
+
+    with patch("data_console.sheet_mapping_service.fetch_sheet_csv", return_value=b"order_dt,qty\n2025-01-01,10\n"):
+        _post(
+            server,
+            "/api/mappings/customer_orders/from-sheet",
+            {"url": _SHEET_URL, "column_mapping": {"order_date": "order_dt", "quantity": "qty"}},
+        )
+
+    with patch("data_console.sheet_mapping_service.fetch_sheet_csv", side_effect=SheetFetchError("no longer public")):
+        status, data = _get(server, "/api/mappings/customer_orders/preview")
+
+    assert status == 400
+    assert "no longer public" in data["error"]
