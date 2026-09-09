@@ -37,13 +37,16 @@ def _audit_store() -> AuditStore:
     return AuditStore(DEFAULT_AUDIT_LOG_PATH)
 
 
-def _build_profile(dataset_kind: str, query: str, column_mapping: dict[str, str]) -> ConnectionProfile:
+def _build_profile(
+    dataset_kind: str, query: str, column_mapping: dict[str, str], unavailable_fields: frozenset[str] = frozenset()
+) -> ConnectionProfile:
     return ConnectionProfile(
         tenant_id=_TENANT_ID,
         dataset_kind=dataset_kind,
         postgres=get_postgres_config(),
         query=query,
         column_mapping=column_mapping,
+        unavailable_fields=unavailable_fields,
     )
 
 
@@ -51,19 +54,35 @@ def _table_query(table: str) -> str:
     return f"SELECT * FROM {quote_identifier(table)}"
 
 
-def save_mapping(dataset_kind: str, table: str, column_mapping: dict[str, str], store: MappingStore | None = None) -> None:
+def save_mapping(
+    dataset_kind: str,
+    table: str,
+    column_mapping: dict[str, str],
+    unavailable_fields: frozenset[str] = frozenset(),
+    store: MappingStore | None = None,
+) -> None:
     """Validates via the real connection_profile engine, then persists.
+
+    `unavailable_fields` are required fields explicitly declared genuinely
+    absent from this table (see ConnectionProfile.unavailable_fields) -
+    exempt from the completeness check below.
 
     Raises SchemaMappingError (incomplete mapping, or a mapped column
     that doesn't actually exist), MissingConfigError, or
     PostgresIntegrationError - nothing is ever saved unless validation
     against the live database passes.
     """
-    profile = _build_profile(dataset_kind, _table_query(table), column_mapping)
+    profile = _build_profile(dataset_kind, _table_query(table), column_mapping, unavailable_fields)
     validate_profile(profile)
     (store or MappingStore()).save(
         dataset_kind,
-        DatasetMapping(status="mapped", table=table, column_mapping=column_mapping, source_kind="table"),
+        DatasetMapping(
+            status="mapped",
+            table=table,
+            column_mapping=column_mapping,
+            source_kind="table",
+            unavailable_fields=sorted(unavailable_fields),
+        ),
     )
 
 
@@ -83,22 +102,34 @@ def probe_query_columns(raw_query: str) -> list[str]:
 
 
 def save_mapping_from_query(
-    dataset_kind: str, raw_query: str, column_mapping: dict[str, str], store: MappingStore | None = None
+    dataset_kind: str,
+    raw_query: str,
+    column_mapping: dict[str, str],
+    unavailable_fields: frozenset[str] = frozenset(),
+    store: MappingStore | None = None,
 ) -> None:
     """The raw-SQL escape hatch: same validate-before-persist contract as save_mapping(),
     for a dataset whose required columns are split across more tables than the guided
     picker's single table (and, in the guided flow, no join at all) can reach.
+
+    `unavailable_fields`: see save_mapping()'s own docstring.
 
     Raises UnsafeQueryError (query fails the read-only guardrail), SchemaMappingError,
     MissingConfigError, or PostgresIntegrationError - nothing is ever saved unless both
     the guardrail and the live-schema validation pass.
     """
     cleaned = validate_read_only_query(raw_query)
-    profile = _build_profile(dataset_kind, cleaned, column_mapping)
+    profile = _build_profile(dataset_kind, cleaned, column_mapping, unavailable_fields)
     validate_profile(profile)
     (store or MappingStore()).save(
         dataset_kind,
-        DatasetMapping(status="mapped", query=cleaned, column_mapping=column_mapping, source_kind="query"),
+        DatasetMapping(
+            status="mapped",
+            query=cleaned,
+            column_mapping=column_mapping,
+            source_kind="query",
+            unavailable_fields=sorted(unavailable_fields),
+        ),
     )
 
 
@@ -154,7 +185,7 @@ def preview_mapping(dataset_kind: str, store: MappingStore | None = None) -> Map
         return preview_sheet_mapping(dataset_kind, mapping)
 
     base_query = _table_query(mapping.table) if mapping.source_kind == "table" else mapping.query
-    profile = _build_profile(dataset_kind, base_query, mapping.column_mapping)
+    profile = _build_profile(dataset_kind, base_query, mapping.column_mapping, frozenset(mapping.unavailable_fields))
     # fetch_profile_data() itself has no LIMIT concept (a real pull is
     # meant to get everything the query asks for) - capped here, the same
     # PREVIEW_ROW_LIMIT every other preview in this console already uses,
@@ -172,6 +203,7 @@ def preview_mapping(dataset_kind: str, store: MappingStore | None = None) -> Map
         postgres=profile.postgres,
         query=f"SELECT * FROM ({profile.query}) AS mapping_preview LIMIT {PREVIEW_ROW_LIMIT}",
         column_mapping=profile.column_mapping,
+        unavailable_fields=profile.unavailable_fields,
     )
     rows = fetch_profile_data(capped_profile, _audit_store())
     return MappingPreviewResult(rows=rows, row_count=len(rows), truncated=len(rows) == PREVIEW_ROW_LIMIT)

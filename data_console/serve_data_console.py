@@ -245,6 +245,7 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   .status-not_mapped .status-badge { background: var(--warning-tint); color: var(--warning); }
   .status-unavailable .status-badge { background: var(--neutral-tint); color: var(--neutral); }
   .mapping-status-line { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 10px; }
+  .mapping-unavailable-note { font-size: 12px; color: var(--warning); background: var(--warning-tint); border-radius: 7px; padding: 7px 10px; margin: -2px 0 12px; }
   .mapping-fields { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 12px; line-height: 1.6; }
   .mapping-fields .field-line { margin: 2px 0; }
   .mapping-fields .field-optional { color: var(--ink-faint); }
@@ -254,9 +255,13 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   }
   .search-input:focus, .sql-input:focus, select:focus { outline: 2px solid var(--brand-tint); border-color: var(--brand); }
   .table-search-results { max-height: 160px; overflow-y: auto; border: 1px solid var(--border-soft); border-radius: 7px; margin-bottom: 8px; }
-  .mapping-form-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin: 7px 0; }
-  .mapping-form-row label { width: 150px; flex-shrink: 0; color: var(--ink-soft); }
-  .mapping-form-row select, .mapping-form-row input { flex: 1; min-width: 0; max-width: 100%; margin-bottom: 0; }
+  .mapping-form-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin: 7px 0; flex-wrap: wrap; }
+  .mapping-form-row > label:first-child { width: 150px; flex-shrink: 0; color: var(--ink-soft); }
+  .mapping-form-row select, .mapping-form-row input[type="text"], .mapping-form-row input[type="password"] { flex: 1; min-width: 0; max-width: 100%; margin-bottom: 0; }
+  .mapping-form-row label.unavailable-check {
+    display: flex; align-items: center; gap: 5px; width: auto; flex: none; color: var(--ink-faint); font-size: 12px; white-space: nowrap; cursor: pointer;
+  }
+  .mapping-form-row label.unavailable-check input[type="checkbox"] { flex: none; margin: 0; }
   .table-scroll { overflow-x: auto; max-width: 100%; }
   .sql-input {
     width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px;
@@ -691,6 +696,12 @@ function renderMappingCards() {
     head.appendChild(el('span', {className: 'status-badge', text: statusBadgeText(status)}));
     card.appendChild(head);
     card.appendChild(el('div', {className: 'mapping-status-line', text: mappingStatusLine(status)}));
+    if (status.status === 'mapped' && status.unavailable_fields && status.unavailable_fields.length > 0) {
+      card.appendChild(el('div', {
+        className: 'mapping-unavailable-note',
+        text: 'Not available in this dataset: ' + status.unavailable_fields.join(', ') + ' — any analysis needing these will be skipped.',
+      }));
+    }
     card.appendChild(buildFieldsList(requirements));
 
     const actions = el('div');
@@ -1264,6 +1275,7 @@ function renderTablePicker(requirements, pickerArea, tables) {
 // resulting error/not-connected/success states, identically either way.
 function buildMappingFieldForm(requirements, columnNames, suggestions, formArea, onSave) {
   const fieldSelects = {};
+  const unavailableChecks = {};
   function buildFieldRow(field, required) {
     const row = el('div', {className: 'mapping-form-row'});
     row.appendChild(el('label', {text: field.name + (required ? ' *' : '')}));
@@ -1280,6 +1292,27 @@ function buildMappingFieldForm(requirements, columnNames, suggestions, formArea,
     if (suggestion) select.value = suggestion;
     row.appendChild(select);
     fieldSelects[field.name] = select;
+
+    // Required fields only: a dataset genuinely missing this column (e.g. a
+    // transaction-level export with no safety_stock) shouldn't be blocked
+    // from mapping everything else - checking this exempts just this field
+    // from the "every required field must be mapped" rule below. Whatever
+    // calculation needs it is skipped with a clear reason instead of
+    // crashing (see StockoutRiskAgent's own handling of a missing field).
+    if (required) {
+      const unavailableLabel = document.createElement('label');
+      unavailableLabel.className = 'unavailable-check';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      unavailableChecks[field.name] = checkbox;
+      checkbox.addEventListener('change', function() {
+        select.disabled = checkbox.checked;
+        if (checkbox.checked) select.value = '';
+      });
+      unavailableLabel.appendChild(checkbox);
+      unavailableLabel.appendChild(document.createTextNode('Not available in this dataset'));
+      row.appendChild(unavailableLabel);
+    }
     return row;
   }
   requirements.required.forEach(function(f) { formArea.appendChild(buildFieldRow(f, true)); });
@@ -1291,11 +1324,13 @@ function buildMappingFieldForm(requirements, columnNames, suggestions, formArea,
   const saveBtn = el('button', {className: 'btn btn-primary', text: 'Save Mapping'});
   saveBtn.addEventListener('click', async function() {
     clear(errorArea);
-    const missingRequired = requirements.required.filter(function(f) { return !fieldSelects[f.name].value; });
+    const missingRequired = requirements.required.filter(function(f) {
+      return !fieldSelects[f.name].value && !unavailableChecks[f.name].checked;
+    });
     if (missingRequired.length > 0) {
       errorArea.appendChild(el('div', {
         className: 'error-box',
-        text: 'Please choose a column for: ' + missingRequired.map(function(f) { return f.name; }).join(', '),
+        text: 'Please choose a column for (or mark "Not available" for): ' + missingRequired.map(function(f) { return f.name; }).join(', '),
       }));
       return;
     }
@@ -1304,9 +1339,12 @@ function buildMappingFieldForm(requirements, columnNames, suggestions, formArea,
       const value = fieldSelects[fieldName].value;
       if (value) columnMapping[fieldName] = value;
     });
+    const unavailableFields = Object.keys(unavailableChecks).filter(function(fieldName) {
+      return unavailableChecks[fieldName].checked;
+    });
 
     saveBtn.disabled = true;
-    const result = await onSave(columnMapping);
+    const result = await onSave(columnMapping, unavailableFields);
     saveBtn.disabled = false;
     clear(errorArea);
     if (result.error) {
@@ -1345,11 +1383,11 @@ async function pickTableForMapping(requirements, tableName, pickerArea) {
   const cancelBtn = el('button', {className: 'btn', text: 'Cancel'});
   cancelBtn.addEventListener('click', function() { clear(pickerArea); });
 
-  buildMappingFieldForm(requirements, columnNames, suggestions, pickerArea, async function(columnMapping) {
+  buildMappingFieldForm(requirements, columnNames, suggestions, pickerArea, async function(columnMapping, unavailableFields) {
     const resp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({table: tableName, column_mapping: columnMapping}),
+      body: JSON.stringify({table: tableName, column_mapping: columnMapping, unavailable_fields: unavailableFields}),
     });
     return resp.json();
   });
@@ -1412,11 +1450,11 @@ function writeQueryForMapping(requirements, pickerArea) {
     statusArea.appendChild(el('div', {className: 'placeholder', text: "Map this query's columns to " + requirements.label}));
     const formArea = el('div');
     statusArea.appendChild(formArea);
-    buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
+    buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping, unavailableFields) {
       const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-query', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({query: queryText, column_mapping: columnMapping}),
+        body: JSON.stringify({query: queryText, column_mapping: columnMapping, unavailable_fields: unavailableFields}),
       });
       return saveResp.json();
     });
@@ -1449,11 +1487,11 @@ function renderFileMappingForm(requirements, fileId, filename, columns, suggeste
   container.appendChild(el('div', {className: 'placeholder', text: 'Map "' + filename + '" to ' + requirements.label}));
   const formArea = el('div');
   container.appendChild(formArea);
-  buildMappingFieldForm(requirements, columns, suggestions, formArea, async function(columnMapping) {
+  buildMappingFieldForm(requirements, columns, suggestions, formArea, async function(columnMapping, unavailableFields) {
     const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-file', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({file_id: fileId, filename: filename, column_mapping: columnMapping}),
+      body: JSON.stringify({file_id: fileId, filename: filename, column_mapping: columnMapping, unavailable_fields: unavailableFields}),
     });
     return saveResp.json();
   });
@@ -1565,11 +1603,11 @@ async function probeAndRenderSheetForm(requirements, url, container) {
   container.appendChild(el('div', {className: 'placeholder', text: 'Map this sheet to ' + requirements.label}));
   const formArea = el('div');
   container.appendChild(formArea);
-  buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
+  buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping, unavailableFields) {
     const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-sheet', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url: url, column_mapping: columnMapping}),
+      body: JSON.stringify({url: url, column_mapping: columnMapping, unavailable_fields: unavailableFields}),
     });
     return saveResp.json();
   });
@@ -1728,6 +1766,7 @@ def _mapping_status_dict(mapping: DatasetMapping | None) -> dict:
         "filename": mapping.filename,
         "sheet_url": mapping.sheet_url,
         "column_mapping": mapping.column_mapping,
+        "unavailable_fields": mapping.unavailable_fields,
     }
 
 
@@ -1738,6 +1777,17 @@ def _parse_column_mapping(payload: dict) -> dict[str, str]:
     if not all(isinstance(k, str) and isinstance(v, str) and v for k, v in column_mapping.items()):
         raise ValueError("'column_mapping' values must be non-empty column-name strings")
     return column_mapping
+
+
+def _parse_unavailable_fields(payload: dict) -> frozenset[str]:
+    """Optional: canonical field names the user has explicitly declared absent
+    from this source, via the mapping form's per-field "Not available in this
+    dataset" option. Defaults to none, so an older client that never sends
+    this key behaves exactly as before."""
+    unavailable_fields = payload.get("unavailable_fields", [])
+    if not isinstance(unavailable_fields, list) or not all(isinstance(f, str) for f in unavailable_fields):
+        raise ValueError("'unavailable_fields' must be a list of strings")
+    return frozenset(unavailable_fields)
 
 
 class DataConsoleHandler(BaseHTTPRequestHandler):
@@ -1981,12 +2031,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             if not isinstance(table, str) or not table:
                 raise ValueError("'table' must be a non-empty string")
             column_mapping = _parse_column_mapping(payload)
+            unavailable_fields = _parse_unavailable_fields(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": f"invalid request: {exc}"})
             return
 
         try:
-            save_mapping(dataset_kind, table, column_mapping)
+            save_mapping(dataset_kind, table, column_mapping, unavailable_fields)
         except SchemaMappingError as exc:
             self._send_json(400, {"error": str(exc)})
             return
@@ -2039,12 +2090,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             if not isinstance(query, str) or not query.strip():
                 raise ValueError("'query' must be a non-empty string")
             column_mapping = _parse_column_mapping(payload)
+            unavailable_fields = _parse_unavailable_fields(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": f"invalid request: {exc}"})
             return
 
         try:
-            save_mapping_from_query(dataset_kind, query, column_mapping)
+            save_mapping_from_query(dataset_kind, query, column_mapping, unavailable_fields)
         except UnsafeQueryError as exc:
             self._send_json(400, {"error": str(exc)})
             return
@@ -2145,12 +2197,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             if not isinstance(filename, str) or not filename:
                 raise ValueError("'filename' must be a non-empty string")
             column_mapping = _parse_column_mapping(payload)
+            unavailable_fields = _parse_unavailable_fields(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": f"invalid request: {exc}"})
             return
 
         try:
-            save_mapping_from_file(dataset_kind, file_id, filename, column_mapping)
+            save_mapping_from_file(dataset_kind, file_id, filename, column_mapping, unavailable_fields)
         except UnknownUploadError as exc:
             self._send_json(400, {"error": str(exc)})
             return
@@ -2189,12 +2242,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             if not isinstance(url, str) or not url.strip():
                 raise ValueError("'url' must be a non-empty string")
             column_mapping = _parse_column_mapping(payload)
+            unavailable_fields = _parse_unavailable_fields(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": f"invalid request: {exc}"})
             return
 
         try:
-            save_mapping_from_sheet(dataset_kind, url, column_mapping)
+            save_mapping_from_sheet(dataset_kind, url, column_mapping, unavailable_fields)
         except (InvalidSheetUrlError, SheetFetchError) as exc:
             self._send_json(400, {"error": str(exc)})
             return

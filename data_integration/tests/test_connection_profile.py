@@ -18,13 +18,16 @@ from data_integration.postgres_connector import PostgresIntegrationError
 _PG = PostgresConfig(host="db.acme.example", port=5432, database="acme", user="u", password="p")
 
 
-def _profile(dataset_kind: str, column_mapping: dict[str, str]) -> ConnectionProfile:
+def _profile(
+    dataset_kind: str, column_mapping: dict[str, str], unavailable_fields: frozenset[str] = frozenset()
+) -> ConnectionProfile:
     return ConnectionProfile(
         tenant_id="acme",
         dataset_kind=dataset_kind,
         postgres=_PG,
         query="SELECT * FROM orders",
         column_mapping=column_mapping,
+        unavailable_fields=unavailable_fields,
     )
 
 
@@ -79,6 +82,43 @@ def test_incomplete_inventory_mapping_raises():
 
     with pytest.raises(SchemaMappingError, match="safety_stock"):
         validate_mapping_completeness(profile)
+
+
+# --- unavailable_fields ---
+
+
+def test_a_required_field_declared_unavailable_is_exempt_from_completeness():
+    # A transaction-level dataset with no safety_stock/daily_demand_rate/
+    # lead_time_days column at all - declaring them unavailable, rather than
+    # leaving them unmapped, must let the rest of the mapping through.
+    profile = _profile(
+        "inventory",
+        {"sku": "SKU", "current_stock": "OnHand"},
+        unavailable_fields=frozenset({"safety_stock", "daily_demand_rate", "lead_time_days"}),
+    )
+
+    validate_mapping_completeness(profile)  # must not raise
+
+
+def test_a_required_field_still_missing_and_not_declared_unavailable_still_raises():
+    profile = _profile(
+        "inventory", {"sku": "SKU", "current_stock": "OnHand"}, unavailable_fields=frozenset({"safety_stock"})
+    )
+
+    with pytest.raises(SchemaMappingError, match="daily_demand_rate"):
+        validate_mapping_completeness(profile)
+
+
+def test_validate_against_live_schema_skips_a_field_declared_unavailable():
+    profile = _profile(
+        "inventory",
+        {"sku": "SKU", "current_stock": "OnHand"},
+        unavailable_fields=frozenset({"safety_stock", "daily_demand_rate", "lead_time_days"}),
+    )
+    with patch("data_integration.connection_profile.postgres_connector.fetch_columns") as mock_fetch:
+        mock_fetch.return_value = ["SKU", "OnHand"]  # the unavailable fields' columns genuinely don't exist
+
+        validate_against_live_schema(profile)  # must not raise
 
 
 def test_error_message_names_the_tenant():

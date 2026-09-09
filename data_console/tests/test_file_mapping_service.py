@@ -38,6 +38,26 @@ def test_save_mapping_from_file_rejects_a_mapped_column_not_present_in_the_file(
     assert store.get("inventory") is None
 
 
+def test_save_mapping_from_file_with_a_field_marked_unavailable_saves_without_it(tmp_path):
+    # A real transaction-level export genuinely has no safety_stock column -
+    # marking it unavailable (rather than leaving it unmapped) must let the
+    # rest of the mapping save instead of being blocked as "incomplete."
+    store = MappingStore(tmp_path / "mappings.json")
+    with patch("data_console.file_mapping_service.file_store.read_upload_columns", return_value=["sku", "on_hand"]):
+        save_mapping_from_file(
+            "inventory",
+            "file-1",
+            "inventory.csv",
+            {"sku": "sku", "current_stock": "on_hand"},
+            frozenset({"safety_stock", "daily_demand_rate", "lead_time_days"}),
+            store=store,
+        )
+
+    saved = store.get("inventory")
+    assert saved.column_mapping == {"sku": "sku", "current_stock": "on_hand"}
+    assert sorted(saved.unavailable_fields) == ["daily_demand_rate", "lead_time_days", "safety_stock"]
+
+
 def test_save_mapping_from_file_rejects_an_incomplete_mapping(tmp_path):
     store = MappingStore(tmp_path / "mappings.json")
     with patch("data_console.file_mapping_service.file_store.read_upload_columns", return_value=["sku"]):
@@ -64,6 +84,25 @@ def test_preview_file_mapping_returns_remapped_rows():
     ]
     assert result.row_count == 2
     assert result.truncated is False
+
+
+def test_preview_file_mapping_with_a_field_marked_unavailable_still_previews():
+    mapping = DatasetMapping(
+        status="mapped",
+        file_id="file-1",
+        filename="inventory.csv",
+        column_mapping={"sku": "sku", "current_stock": "on_hand"},
+        source_kind="file",
+        unavailable_fields=["safety_stock", "daily_demand_rate", "lead_time_days"],
+    )
+    with patch("data_console.file_mapping_service.file_store.read_upload_columns", return_value=["sku", "on_hand"]), \
+         patch(
+             "data_console.file_mapping_service.file_store.read_upload_rows",
+             return_value=[{"sku": "SKU-1", "on_hand": "5"}],
+         ):
+        result = preview_file_mapping("inventory", mapping)  # must not raise
+
+    assert result.rows == [{"sku": "SKU-1", "current_stock": "5"}]
 
 
 def test_preview_file_mapping_marks_truncated_at_the_row_limit():

@@ -42,6 +42,11 @@ class DatasetMapping:
     file_id: str | None = None
     filename: str | None = None
     sheet_url: str | None = None
+    # Canonical field names explicitly marked "not available in this dataset"
+    # during mapping - a list (not a set) purely so this round-trips through
+    # JSON unchanged; every consumer converts to a set/frozenset as needed.
+    # Defaults to [] so a mapping saved before this field existed still loads.
+    unavailable_fields: list[str] = field(default_factory=list)
 
 
 class MappingStore:

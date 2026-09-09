@@ -52,6 +52,25 @@ def test_save_mapping_does_not_persist_when_validation_fails(tmp_path):
     assert store.get("inventory") is None
 
 
+def test_save_mapping_with_unavailable_fields_passes_them_to_validation_and_persists_them(tmp_path):
+    store = MappingStore(tmp_path / "mappings.json")
+
+    with patch("data_console.mapping_service.get_postgres_config", return_value=_CONFIG), \
+         patch("data_console.mapping_service.validate_profile") as mock_validate:
+        save_mapping(
+            "inventory",
+            "acme_inventory",
+            {"sku": "item_sku", "current_stock": "on_hand"},
+            frozenset({"safety_stock", "daily_demand_rate", "lead_time_days"}),
+            store=store,
+        )
+
+    profile = mock_validate.call_args[0][0]
+    assert profile.unavailable_fields == frozenset({"safety_stock", "daily_demand_rate", "lead_time_days"})
+    saved = store.get("inventory")
+    assert sorted(saved.unavailable_fields) == ["daily_demand_rate", "lead_time_days", "safety_stock"]
+
+
 def test_mark_unavailable_persists_the_unavailable_status(tmp_path):
     store = MappingStore(tmp_path / "mappings.json")
 

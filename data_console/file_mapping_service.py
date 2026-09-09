@@ -52,9 +52,18 @@ def probe_upload_columns(file_id: str) -> list[str]:
 
 
 def save_mapping_from_file(
-    dataset_kind: str, file_id: str, filename: str, column_mapping: dict[str, str], store: MappingStore | None = None
+    dataset_kind: str,
+    file_id: str,
+    filename: str,
+    column_mapping: dict[str, str],
+    unavailable_fields: frozenset[str] = frozenset(),
+    store: MappingStore | None = None,
 ) -> None:
     """Validates every mapped column against the file's real current headers, then persists.
+
+    `unavailable_fields` are required fields explicitly declared genuinely
+    absent from this file - exempt from the completeness check (see
+    mapping_validation.validate_column_mapping()'s own docstring).
 
     Raises SchemaMappingError (incomplete mapping, or a mapped column that
     doesn't actually exist in the file) or UnknownUploadError - nothing is
@@ -62,11 +71,16 @@ def save_mapping_from_file(
     validate-before-persist contract every other source kind follows.
     """
     real_columns = file_store.read_upload_columns(file_id)
-    validate_column_mapping(dataset_kind, real_columns, column_mapping)
+    validate_column_mapping(dataset_kind, real_columns, column_mapping, unavailable_fields)
     (store or MappingStore()).save(
         dataset_kind,
         DatasetMapping(
-            status="mapped", file_id=file_id, filename=filename, column_mapping=column_mapping, source_kind="file"
+            status="mapped",
+            file_id=file_id,
+            filename=filename,
+            column_mapping=column_mapping,
+            source_kind="file",
+            unavailable_fields=sorted(unavailable_fields),
         ),
     )
 
@@ -79,7 +93,7 @@ def preview_file_mapping(dataset_kind: str, mapping: DatasetMapping) -> MappingP
     Raises SchemaMappingError or UnknownUploadError.
     """
     real_columns = file_store.read_upload_columns(mapping.file_id)
-    validate_column_mapping(dataset_kind, real_columns, mapping.column_mapping)
+    validate_column_mapping(dataset_kind, real_columns, mapping.column_mapping, frozenset(mapping.unavailable_fields))
 
     raw_rows = file_store.read_upload_rows(mapping.file_id)
     remapped = remap_rows(raw_rows, mapping.column_mapping)

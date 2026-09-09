@@ -76,6 +76,17 @@ class ConnectionProfile:
     postgres: PostgresConfig
     query: str
     column_mapping: dict[str, str] = field(default_factory=dict)
+    # Canonical field names explicitly declared as genuinely absent from this
+    # tenant's data (e.g. a transaction-level export with no safety_stock
+    # column) - distinct from a field simply not yet mapped. A required field
+    # in here is exempted from validate_mapping_completeness() instead of
+    # blocking the whole profile from being saved; the calculation(s) that
+    # need it (inventory_risk/data_quality.py, risk_detection/anomaly_detection.py)
+    # already degrade gracefully per-row/per-dataset when a field is absent
+    # from a remapped row, surfacing a clear "flagged for review" reason
+    # rather than crashing - see StockoutRiskAgent.run()'s own handling of
+    # quality.clean_rows being empty.
+    unavailable_fields: frozenset[str] = field(default_factory=frozenset)
 
 
 class SchemaMappingError(ValueError):
@@ -87,10 +98,11 @@ def validate_mapping_completeness(profile: ConnectionProfile) -> None:
 
     Pure - no database access. The cheapest possible check, run before any
     connection attempt, so a profile missing a required mapping never gets
-    as far as a live query.
+    as far as a live query. A field listed in profile.unavailable_fields is
+    exempt - it has been explicitly declared absent, not merely unmapped.
     """
     required = REQUIRED_FIELDS_BY_DATASET_KIND[profile.dataset_kind]
-    missing = [f for f in required if not profile.column_mapping.get(f)]
+    missing = [f for f in required if f not in profile.unavailable_fields and not profile.column_mapping.get(f)]
     if missing:
         raise SchemaMappingError(
             f"tenant '{profile.tenant_id}' ({profile.dataset_kind}) is missing a column mapping "
@@ -114,7 +126,11 @@ def validate_against_live_schema(profile: ConnectionProfile) -> None:
     missing = [
         f"{canonical_field} -> '{profile.column_mapping[canonical_field]}'"
         for canonical_field in required
-        if profile.column_mapping[canonical_field] not in live_columns
+        # A required field with no entry in column_mapping at all is only
+        # possible here because validate_mapping_completeness() above already
+        # confirmed it's in unavailable_fields - nothing to check against the
+        # live schema for a column that was never claimed to exist.
+        if canonical_field in profile.column_mapping and profile.column_mapping[canonical_field] not in live_columns
     ]
     if missing:
         raise SchemaMappingError(

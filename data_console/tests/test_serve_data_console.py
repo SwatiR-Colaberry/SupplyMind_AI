@@ -411,7 +411,41 @@ def test_post_mapping_validates_and_saves_then_shows_up_in_get_mappings(server, 
         "filename": None,
         "sheet_url": None,
         "column_mapping": {"sku": "item_sku", "current_stock": "on_hand"},
+        "unavailable_fields": [],
     }
+
+
+def test_post_mapping_with_unavailable_fields_saves_and_shows_up_in_get_mappings(server, isolated_mapping_store):
+    # A real dataset that genuinely has no safety_stock/daily_demand_rate/
+    # lead_time_days column - the per-field "Not available in this dataset"
+    # checkbox sends these as unavailable_fields instead of blocking the save.
+    with patch("data_console.mapping_service.get_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile"):
+        status, data = _post(
+            server, "/api/mappings/inventory",
+            {
+                "table": "acme_inventory",
+                "column_mapping": {"sku": "item_sku", "current_stock": "on_hand"},
+                "unavailable_fields": ["safety_stock", "daily_demand_rate", "lead_time_days"],
+            },
+        )
+
+    assert status == 200
+    assert data == {"saved": True}
+
+    status, data = _get(server, "/api/mappings")
+    assert sorted(data["mappings"]["inventory"]["unavailable_fields"]) == [
+        "daily_demand_rate", "lead_time_days", "safety_stock"
+    ]
+
+
+def test_post_mapping_returns_400_when_unavailable_fields_is_not_a_list_of_strings(server, isolated_mapping_store):
+    status, data = _post(
+        server, "/api/mappings/inventory",
+        {"table": "acme_inventory", "column_mapping": {"sku": "sku"}, "unavailable_fields": "safety_stock"},
+    )
+    assert status == 400
+    assert "unavailable_fields" in data["error"]
 
 
 def test_post_mapping_returns_400_and_saves_nothing_when_validation_fails(server, isolated_mapping_store):
@@ -580,6 +614,7 @@ def test_post_mapping_from_query_validates_and_saves_then_shows_up_in_get_mappin
         "filename": None,
         "sheet_url": None,
         "column_mapping": {"sku": "sku"},
+        "unavailable_fields": [],
     }
 
 
@@ -939,6 +974,7 @@ def test_post_mapping_from_sheet_validates_and_saves_then_shows_up_in_get_mappin
         "filename": None,
         "sheet_url": _SHEET_URL,
         "column_mapping": {"order_date": "order_dt", "quantity": "qty"},
+        "unavailable_fields": [],
     }
 
 
