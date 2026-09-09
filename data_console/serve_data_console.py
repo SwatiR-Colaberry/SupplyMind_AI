@@ -100,69 +100,150 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
 <meta charset="utf-8">
 <title>Connect Your Data</title>
 <style>
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #f5f6f8; color: #1a1a1a; margin: 0; padding: 24px; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  h2 { font-size: 14px; margin: 0 0 8px; }
-  .meta { color: #666; font-size: 13px; margin-bottom: 16px; }
-  .intro { background: white; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #333; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  :root {
+    --ink: #131826;
+    --ink-soft: #4a5468;
+    --ink-faint: #8891a1;
+    --surface: #ffffff;
+    --canvas: #f2f4f8;
+    --border: #e1e5ec;
+    --border-soft: #edeff3;
+    --brand: #1d4ed8;
+    --brand-dark: #1638a6;
+    --brand-tint: #eaf0fd;
+    --success: #0f7b52;
+    --success-tint: #e6f4ec;
+    --warning: #a85c00;
+    --warning-tint: #fbf0dd;
+    --neutral: #5f6673;
+    --neutral-tint: #eef0f3;
+    --danger: #9a2b1e;
+    --danger-tint: #fdecea;
+    --danger-border: #f3c6c1;
+    --shadow: 0 1px 2px rgba(19, 24, 38, 0.05), 0 1px 8px rgba(19, 24, 38, 0.04);
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--canvas); color: var(--ink); margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1180px; margin: 0 auto; padding: 32px 32px 56px; }
+  h1 { font-size: 23px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 4px; }
+  h2 {
+    font-size: 12px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-soft); margin: 0 0 12px;
+  }
+  h3 { font-size: 15px; font-weight: 600; margin: 0; color: var(--ink); }
+  .topbar { margin-bottom: 24px; }
+  .meta { color: var(--ink-soft); font-size: 14px; margin-bottom: 20px; }
+  .intro {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 24px; font-size: 13.5px; line-height: 1.55; color: var(--ink-soft);
+  }
   .layout { display: flex; gap: 16px; align-items: flex-start; }
-  .panel { background: white; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
-  .tables-panel { width: 220px; flex-shrink: 0; }
+  .panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .tables-panel { width: 240px; flex-shrink: 0; }
   .detail-panel { flex: 1; min-width: 0; }
-  .table-item { display: block; width: 100%; text-align: left; padding: 8px 10px; border: none; background: none; border-radius: 6px; cursor: pointer; font-size: 13px; color: #1a1a1a; }
-  .table-item:hover { background: #f0f2f5; }
-  .table-item.selected { background: #e3edfb; font-weight: 600; }
-  .placeholder { color: #888; font-size: 13px; }
-  .not-connected { background: #fff3cd; border: 1px solid #ffe69c; padding: 12px 14px; border-radius: 6px; font-size: 13px; }
-  .not-connected code { background: #00000010; padding: 1px 4px; border-radius: 3px; }
-  table.col-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 16px; }
-  table.col-table th, table.col-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eee; }
-  .select-section { margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; }
-  .col-checkbox-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 0; }
-  .btn { padding: 6px 12px; border: 1px solid #1565c0; background: white; color: #1565c0; border-radius: 6px; font-size: 12px; cursor: pointer; margin: 4px 4px 4px 0; }
-  .btn:hover { background: #eaf1fb; }
-  .btn-primary { background: #1565c0; color: white; }
-  .btn-primary:hover { background: #114f96; }
-  .join-block { margin: 10px 0; padding: 10px 12px; background: #f8f9fb; border-radius: 6px; }
-  .join-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 8px; flex-wrap: wrap; }
-  select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; }
-  .sql-box { background: #1a1a2e; color: #d6e4ff; padding: 10px 12px; border-radius: 6px; font-size: 11px; overflow-x: auto; margin: 10px 0; white-space: pre-wrap; word-break: break-word; }
-  .truncated-note { font-size: 11px; color: #888; margin-top: 4px; }
-  .error-box { background: #fdecea; border: 1px solid #f5c2c0; color: #8a1f11; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin: 10px 0; }
-  .mapping-section { margin-bottom: 24px; }
-  .mapping-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
-  .mapping-card { background: white; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
-  .mapping-card.status-mapped { border-left: 4px solid #2e7d32; }
-  .mapping-card.status-not_mapped { border-left: 4px solid #f9a825; }
-  .mapping-card.status-unavailable { border-left: 4px solid #757575; }
-  .mapping-card h3 { font-size: 14px; margin: 0 0 4px; }
-  .mapping-status-line { font-size: 12px; color: #444; margin-bottom: 8px; }
-  .mapping-fields { font-size: 12px; color: #555; margin-bottom: 10px; }
+  .table-item {
+    display: block; width: 100%; text-align: left; padding: 8px 10px; border: none;
+    background: none; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--ink);
+  }
+  .table-item:hover { background: var(--brand-tint); }
+  .table-item.selected { background: var(--brand-tint); color: var(--brand-dark); font-weight: 600; }
+  .placeholder { color: var(--ink-faint); font-size: 13px; }
+  .not-connected {
+    background: var(--warning-tint); border: 1px solid #f0d8ab; color: #7a4600;
+    padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5;
+  }
+  .not-connected code { background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 4px; }
+  table.col-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 16px; }
+  table.col-table th {
+    text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border);
+    color: var(--ink-soft); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  table.col-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border-soft); }
+  .select-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+  .col-checkbox-row { display: flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 4px 0; }
+  .btn {
+    padding: 7px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+    border-radius: 7px; font-size: 12.5px; font-weight: 550; cursor: pointer; margin: 4px 6px 4px 0;
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+  .btn:hover { border-color: #c7cde0; background: #f8f9fc; }
+  .btn-primary { background: var(--brand); border-color: var(--brand); color: white; }
+  .btn-primary:hover { background: var(--brand-dark); border-color: var(--brand-dark); }
+  .join-block { margin: 10px 0; padding: 12px 14px; background: var(--canvas); border: 1px solid var(--border-soft); border-radius: 8px; }
+  .join-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin-bottom: 8px; flex-wrap: wrap; }
+  select {
+    padding: 5px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px;
+    background: var(--surface); color: var(--ink);
+  }
+  .sql-box {
+    background: #10152a; color: #c9d8ff; padding: 12px 14px; border-radius: 8px; font-size: 11.5px;
+    overflow-x: auto; margin: 10px 0; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+  }
+  .truncated-note { font-size: 11.5px; color: var(--ink-faint); margin-top: 6px; }
+  .error-box {
+    background: var(--danger-tint); border: 1px solid var(--danger-border); color: var(--danger);
+    padding: 9px 13px; border-radius: 8px; font-size: 12.5px; margin: 10px 0; line-height: 1.45;
+  }
+  .mapping-section { margin-bottom: 28px; }
+  .mapping-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 14px; }
+  .mapping-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .mapping-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .status-badge {
+    flex-shrink: 0; font-size: 10.5px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 100px; white-space: nowrap;
+  }
+  .status-mapped .status-badge { background: var(--success-tint); color: var(--success); }
+  .status-not_mapped .status-badge { background: var(--warning-tint); color: var(--warning); }
+  .status-unavailable .status-badge { background: var(--neutral-tint); color: var(--neutral); }
+  .mapping-status-line { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 10px; }
+  .mapping-fields { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 12px; line-height: 1.6; }
   .mapping-fields .field-line { margin: 2px 0; }
-  .mapping-fields .field-optional { color: #888; }
-  .search-input { width: 100%; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; margin-bottom: 8px; box-sizing: border-box; }
-  .table-search-results { max-height: 160px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-bottom: 8px; }
-  .mapping-form-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 6px 0; }
-  .mapping-form-row label { width: 150px; flex-shrink: 0; }
+  .mapping-fields .field-optional { color: var(--ink-faint); }
+  .search-input {
+    width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px;
+    margin-bottom: 8px; box-sizing: border-box; background: var(--surface); color: var(--ink);
+  }
+  .search-input:focus, .sql-input:focus, select:focus { outline: 2px solid var(--brand-tint); border-color: var(--brand); }
+  .table-search-results { max-height: 160px; overflow-y: auto; border: 1px solid var(--border-soft); border-radius: 7px; margin-bottom: 8px; }
+  .mapping-form-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin: 7px 0; }
+  .mapping-form-row label { width: 150px; flex-shrink: 0; color: var(--ink-soft); }
   .mapping-form-row select { flex: 1; }
   .table-scroll { overflow-x: auto; max-width: 100%; }
-  .sql-input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; margin-bottom: 8px; box-sizing: border-box; font-family: monospace; }
-  .btn-link { background: none; border: none; color: #1565c0; text-decoration: underline; font-size: 12px; cursor: pointer; padding: 4px 0; display: block; }
-  .btn-link:hover { color: #114f96; }
-  .guardrail-note { font-size: 11px; color: #888; margin: 4px 0 8px; }
+  .sql-input {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px;
+    margin-bottom: 8px; box-sizing: border-box; font-family: "SF Mono", Menlo, Consolas, monospace; color: var(--ink);
+  }
+  .btn-link {
+    background: none; border: none; color: var(--brand); text-decoration: none; font-size: 12.5px;
+    font-weight: 550; cursor: pointer; padding: 5px 0; display: block;
+  }
+  .btn-link:hover { text-decoration: underline; color: var(--brand-dark); }
+  .guardrail-note { font-size: 11.5px; color: var(--ink-faint); margin: 4px 0 10px; line-height: 1.5; }
 </style>
 </head>
 <body>
-  <h1>Connect Your Data</h1>
-  <div class="meta">data console - browse what's in your database before selecting anything to analyze</div>
+<div class="page">
+  <div class="topbar">
+    <h1>Connect Your Data</h1>
+    <div class="meta">Browse your connected database and prepare your data for analysis.</div>
+  </div>
   <div class="intro">
-    This page reads what's already in your database and shows it to you plainly - it doesn't change or
-    move anything. Start below by pointing each of the 3 things this system needs (Customer Orders,
-    Inventory, Delivery Records) at whichever table in your database actually holds that data, even if
-    its column names are different from ours - you'll see exactly what's required before you have to
-    pick anything. Below that, you can also just browse any table freely, pick columns, join a second
-    table, and preview the result - every preview is capped at $row_limit rows so this page never tries
-    to load your whole database at once.
+    This page reads directly from your connected database — it never modifies or moves your data.
+    Start by mapping each of the three datasets this system needs (Customer Orders, Inventory, and
+    Delivery Records) to the tables that hold them, even if their column names differ from ours.
+    You can also browse any table directly, select specific columns, join a second table, and preview
+    the results. Every preview is limited to $row_limit rows so this page never attempts to load your
+    entire database at once.
   </div>
   <div class="mapping-section" id="mapping-section">
     <h2>Map Your Data</h2>
@@ -171,6 +252,7 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   <div id="content">
     <div class="placeholder">Loading...</div>
   </div>
+</div>
 <script>
 // Every value that came out of the connected database (table names, column
 // names, data types) is built into the page as real DOM nodes via
@@ -274,7 +356,7 @@ async function loadTables() {
   });
   const detailPanel = el('div', {className: 'panel detail-panel'});
   detailPanel.id = 'detail';
-  detailPanel.appendChild(el('div', {className: 'placeholder', text: 'Click a table to see its columns.'}));
+  detailPanel.appendChild(el('div', {className: 'placeholder', text: 'Select a table to view its columns.'}));
   layout.appendChild(tablesPanel);
   layout.appendChild(detailPanel);
   content.appendChild(layout);
@@ -329,13 +411,13 @@ function buildSelectSection(tableName, columns) {
   const section = el('div', {className: 'select-section'});
   section.id = 'select-section';
 
-  section.appendChild(el('h2', {text: 'Build a selection'}));
-  section.appendChild(el('div', {className: 'placeholder', text: 'Choose which columns to include from "' + tableName + '" (all checked by default). Join in a second table if what you need is split across two.'}));
+  section.appendChild(el('h2', {text: 'Build a Selection'}));
+  section.appendChild(el('div', {className: 'placeholder', text: 'Choose which columns to include from "' + tableName + '" (all are selected by default). Join a second table if the data you need is split across two.'}));
   section.appendChild(buildColumnCheckboxes(tableName, columns, true));
 
   const joinArea = el('div');
   joinArea.id = 'join-area';
-  const addJoinBtn = el('button', {className: 'btn', text: '+ Join another table'});
+  const addJoinBtn = el('button', {className: 'btn', text: '+ Join Another Table'});
   addJoinBtn.addEventListener('click', function() { showJoinPicker(joinArea); });
   joinArea.appendChild(addJoinBtn);
   section.appendChild(joinArea);
@@ -355,7 +437,7 @@ async function showJoinPicker(joinArea) {
   clear(joinArea);
   const otherTables = allTables.filter(function(t) { return t !== baseTable; });
   if (otherTables.length === 0) {
-    joinArea.appendChild(el('div', {className: 'placeholder', text: 'No other tables available to join.'}));
+    joinArea.appendChild(el('div', {className: 'placeholder', text: 'No other tables are available to join.'}));
     return;
   }
 
@@ -393,7 +475,7 @@ function renderJoinDetail(joinDetail, joinTableName, columns) {
   const block = el('div', {className: 'join-block'});
 
   const joinRow = el('div', {className: 'join-row'});
-  joinRow.appendChild(document.createTextNode('Match column in ' + baseTable + ':'));
+  joinRow.appendChild(document.createTextNode('Match a column in ' + baseTable));
   const leftSelect = document.createElement('select');
   leftSelect.id = 'join-left-column';
   baseColumns.forEach(function(c) {
@@ -403,7 +485,7 @@ function renderJoinDetail(joinDetail, joinTableName, columns) {
   });
   joinRow.appendChild(leftSelect);
 
-  joinRow.appendChild(document.createTextNode('to column in ' + joinTableName + ':'));
+  joinRow.appendChild(document.createTextNode('to a column in ' + joinTableName));
   const rightSelect = document.createElement('select');
   rightSelect.id = 'join-right-column';
   columns.forEach(function(c) {
@@ -424,7 +506,7 @@ function renderJoinDetail(joinDetail, joinTableName, columns) {
   }
 
   block.dataset.joinTable = joinTableName;
-  block.appendChild(el('div', {className: 'placeholder', text: 'Columns from "' + joinTableName + '" to include:'}));
+  block.appendChild(el('div', {className: 'placeholder', text: 'Columns from "' + joinTableName + '" to include'}));
   block.appendChild(buildColumnCheckboxes(joinTableName, columns, false));
 
   joinDetail.appendChild(block);
@@ -480,7 +562,7 @@ async function runPreview() {
 
   resultArea.appendChild(buildRowsTable(data.rows));
   if (data.truncated) {
-    resultArea.appendChild(el('div', {className: 'truncated-note', text: 'Showing the first ' + data.row_count + ' rows - there may be more.'}));
+    resultArea.appendChild(el('div', {className: 'truncated-note', text: 'Showing the first ' + data.row_count + ' rows. There may be more.'}));
   }
 }
 
@@ -501,12 +583,12 @@ function buildFieldsList(requirements) {
   const container = el('div', {className: 'mapping-fields'});
   requirements.required.forEach(function(f) {
     const line = el('div', {className: 'field-line'});
-    line.appendChild(document.createTextNode(f.name + ' (required) - ' + f.description + ' e.g. "' + f.example + '"'));
+    line.appendChild(document.createTextNode(f.name + ' (required): ' + f.description + ' — for example, "' + f.example + '".'));
     container.appendChild(line);
   });
   requirements.optional.forEach(function(f) {
     const line = el('div', {className: 'field-line field-optional'});
-    line.appendChild(document.createTextNode(f.name + ' (optional) - ' + f.description + ' e.g. "' + f.example + '"'));
+    line.appendChild(document.createTextNode(f.name + ' (optional): ' + f.description + ' — for example, "' + f.example + '".'));
     container.appendChild(line);
   });
   return container;
@@ -520,7 +602,13 @@ function mappingStatusLine(status) {
     return 'Mapped to "' + status.table + '"';
   }
   if (status.status === 'unavailable') return 'Marked as not available in this database';
-  return 'Not mapped yet';
+  return 'Not yet mapped';
+}
+
+function statusBadgeText(status) {
+  if (status.status === 'mapped') return 'Mapped';
+  if (status.status === 'unavailable') return 'Unavailable';
+  return 'Not Mapped';
 }
 
 async function loadMappingSection() {
@@ -542,7 +630,10 @@ function renderMappingCards() {
   datasetRequirements.forEach(function(requirements) {
     const status = currentMappings[requirements.dataset_name] || {status: 'not_mapped'};
     const card = el('div', {className: 'mapping-card status-' + status.status});
-    card.appendChild(el('h3', {text: requirements.label}));
+    const head = el('div', {className: 'mapping-card-head'});
+    head.appendChild(el('h3', {text: requirements.label}));
+    head.appendChild(el('span', {className: 'status-badge', text: statusBadgeText(status)}));
+    card.appendChild(head);
     card.appendChild(el('div', {className: 'mapping-status-line', text: mappingStatusLine(status)}));
     card.appendChild(buildFieldsList(requirements));
 
@@ -558,15 +649,15 @@ function renderMappingCards() {
       actions.appendChild(changeBtn);
       actions.appendChild(clearBtn);
     } else {
-      const mapBtn = el('button', {className: 'btn btn-primary', text: 'Map this'});
+      const mapBtn = el('button', {className: 'btn btn-primary', text: 'Map This Dataset'});
       mapBtn.addEventListener('click', function() { startMapping(requirements); });
       actions.appendChild(mapBtn);
       if (status.status === 'unavailable') {
-        const clearBtn = el('button', {className: 'btn', text: 'Undo "not available"'});
+        const clearBtn = el('button', {className: 'btn', text: 'Undo "Not Available"'});
         clearBtn.addEventListener('click', function() { clearMapping(requirements.dataset_name); });
         actions.appendChild(clearBtn);
       } else {
-        const unavailableBtn = el('button', {className: 'btn', text: 'Not available in this database'});
+        const unavailableBtn = el('button', {className: 'btn', text: 'Not Available in This Database'});
         unavailableBtn.addEventListener('click', function() { markUnavailable(requirements.dataset_name); });
         actions.appendChild(unavailableBtn);
       }
@@ -607,7 +698,7 @@ async function startMapping(requirements) {
   // more tables than this table picker (and the guided browse builder's
   // own single-join cap) can reach - write a SELECT that joins whatever
   // is needed, and map its result columns instead of a table's.
-  const orQueryBtn = el('button', {className: 'btn-link', text: "Or write your own SQL query"});
+  const orQueryBtn = el('button', {className: 'btn-link', text: "Or write a custom SQL query"});
   orQueryBtn.addEventListener('click', function() { writeQueryForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orQueryBtn);
 
@@ -617,7 +708,7 @@ async function startMapping(requirements) {
   // '/api/tables' reports not connected (see the early return below),
   // since a CSV-only setup with no live database is exactly the case
   // this option exists for.
-  const orUploadBtn = el('button', {className: 'btn-link', text: 'Or upload a CSV file (or a .zip of several)'});
+  const orUploadBtn = el('button', {className: 'btn-link', text: 'Or upload a CSV file (or a .zip archive of several)'});
   orUploadBtn.addEventListener('click', function() { uploadFileForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orUploadBtn);
 
@@ -629,7 +720,7 @@ async function startMapping(requirements) {
   if (lastFileUpload) {
     const orFileBtn = el('button', {
       className: 'btn-link',
-      text: 'Or reuse the last uploaded file ("' + lastFileUpload.filename + '")',
+      text: 'Or reuse the previously uploaded file ("' + lastFileUpload.filename + '")',
     });
     orFileBtn.addEventListener('click', function() {
       clear(pickerArea);
@@ -649,7 +740,7 @@ async function startMapping(requirements) {
   if (lastZipUpload) {
     const orZipBtn = el('button', {
       className: 'btn-link',
-      text: 'Or pick from the last uploaded zip ("' + lastZipUpload.filename + '")',
+      text: 'Or choose a file from the previously uploaded archive ("' + lastZipUpload.filename + '")',
     });
     orZipBtn.addEventListener('click', function() {
       clear(pickerArea);
@@ -663,7 +754,7 @@ async function startMapping(requirements) {
   // Also no database needed - a public Google Sheets CSV link is fetched
   // fresh on every check/preview, so editing the sheet later shows up
   // here too, unlike an uploaded file's frozen snapshot.
-  const orSheetBtn = el('button', {className: 'btn-link', text: 'Or paste a Google Sheets link'});
+  const orSheetBtn = el('button', {className: 'btn-link', text: 'Or connect a Google Sheets link'});
   orSheetBtn.addEventListener('click', function() { pasteSheetLinkForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orSheetBtn);
 
@@ -732,7 +823,7 @@ function buildMappingFieldForm(requirements, columnNames, suggestions, formArea,
     if (missingRequired.length > 0) {
       errorArea.appendChild(el('div', {
         className: 'error-box',
-        text: 'Choose a column for: ' + missingRequired.map(function(f) { return f.name; }).join(', '),
+        text: 'Please choose a column for: ' + missingRequired.map(function(f) { return f.name; }).join(', '),
       }));
       return;
     }
@@ -777,7 +868,7 @@ async function pickTableForMapping(requirements, tableName, pickerArea) {
   const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
   const columnNames = data.columns.map(function(c) { return c.name; });
 
-  pickerArea.appendChild(el('div', {className: 'placeholder', text: 'Mapping "' + tableName + '" to ' + requirements.label + ':'}));
+  pickerArea.appendChild(el('div', {className: 'placeholder', text: 'Mapping "' + tableName + '" to ' + requirements.label}));
 
   const cancelBtn = el('button', {className: 'btn', text: 'Cancel'});
   cancelBtn.addEventListener('click', function() { clear(pickerArea); });
@@ -798,7 +889,7 @@ function writeQueryForMapping(requirements, pickerArea) {
 
   pickerArea.appendChild(el('div', {
     className: 'placeholder',
-    text: 'Write a SELECT for ' + requirements.label + ' - join whatever tables you need. This will be checked and its result columns offered below to map.',
+    text: 'Write a SELECT statement for ' + requirements.label + '. Join any tables you need — the query will be validated and its result columns will be available to map below.',
   }));
 
   const textarea = document.createElement('textarea');
@@ -809,11 +900,11 @@ function writeQueryForMapping(requirements, pickerArea) {
 
   pickerArea.appendChild(el('div', {
     className: 'guardrail-note',
-    text: 'Read-only: must be a single SELECT (or WITH ... SELECT) statement. No inserts, updates, deletes, or other statements.',
+    text: 'Read-only queries only: a single SELECT (or WITH ... SELECT) statement. INSERT, UPDATE, DELETE, and other statements are not permitted.',
   }));
 
-  const checkBtn = el('button', {className: 'btn btn-primary', text: 'Check columns'});
-  const backBtn = el('button', {className: 'btn', text: 'Back to table search'});
+  const checkBtn = el('button', {className: 'btn btn-primary', text: 'Check Columns'});
+  const backBtn = el('button', {className: 'btn', text: 'Back to Table Search'});
   backBtn.addEventListener('click', function() { startMapping(requirements); });
   pickerArea.appendChild(checkBtn);
   pickerArea.appendChild(backBtn);
@@ -846,7 +937,7 @@ function writeQueryForMapping(requirements, pickerArea) {
     }
 
     const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
-    statusArea.appendChild(el('div', {className: 'placeholder', text: "Map this query's columns to " + requirements.label + ':'}));
+    statusArea.appendChild(el('div', {className: 'placeholder', text: "Map this query's columns to " + requirements.label}));
     const formArea = el('div');
     statusArea.appendChild(formArea);
     buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
@@ -877,7 +968,7 @@ let lastZipUpload = null; // {filename, members}
 function renderFileMappingForm(requirements, fileId, filename, columns, suggestedMappings, container) {
   clear(container);
   const suggestions = suggestedMappings[requirements.dataset_name] || {};
-  container.appendChild(el('div', {className: 'placeholder', text: 'Map "' + filename + '" to ' + requirements.label + ':'}));
+  container.appendChild(el('div', {className: 'placeholder', text: 'Map "' + filename + '" to ' + requirements.label}));
   const formArea = el('div');
   container.appendChild(formArea);
   buildMappingFieldForm(requirements, columns, suggestions, formArea, async function(columnMapping) {
@@ -894,7 +985,7 @@ function renderZipMemberPicker(requirements, zipFilename, members, container) {
   clear(container);
   container.appendChild(el('div', {
     className: 'placeholder',
-    text: 'Pick which file inside "' + zipFilename + '" holds ' + requirements.label + ':',
+    text: 'Choose which file inside "' + zipFilename + '" contains the data for ' + requirements.label + '.',
   }));
   const listBox = el('div', {className: 'table-search-results'});
   members.forEach(function(member) {
@@ -912,7 +1003,7 @@ function uploadFileForMapping(requirements, pickerArea) {
 
   pickerArea.appendChild(el('div', {
     className: 'placeholder',
-    text: 'Upload a CSV (or a .zip of several CSVs, one per dataset) for ' + requirements.label + ' - a header row will be offered below to map to each required field. No database connection is needed for this.',
+    text: 'Upload a CSV file (or a .zip archive containing several, one per dataset) for ' + requirements.label + '. Its header row will be used to map each required field below. No database connection is required.',
   }));
 
   const fileInput = document.createElement('input');
@@ -921,7 +1012,7 @@ function uploadFileForMapping(requirements, pickerArea) {
   pickerArea.appendChild(fileInput);
 
   const uploadBtn = el('button', {className: 'btn btn-primary', text: 'Upload'});
-  const backBtn = el('button', {className: 'btn', text: 'Back to table search'});
+  const backBtn = el('button', {className: 'btn', text: 'Back to Table Search'});
   backBtn.addEventListener('click', function() { startMapping(requirements); });
   pickerArea.appendChild(uploadBtn);
   pickerArea.appendChild(backBtn);
@@ -933,7 +1024,7 @@ function uploadFileForMapping(requirements, pickerArea) {
     const file = fileInput.files[0];
     clear(statusArea);
     if (!file) {
-      statusArea.appendChild(el('div', {className: 'error-box', text: 'Choose a file first.'}));
+      statusArea.appendChild(el('div', {className: 'error-box', text: 'Please choose a file to upload.'}));
       return;
     }
 
@@ -977,8 +1068,8 @@ function pasteSheetLinkForMapping(requirements, pickerArea) {
   pickerArea.appendChild(el('div', {
     className: 'placeholder',
     text: 'Paste a Google Sheets CSV link for ' + requirements.label +
-      ' (File > Share > Publish to web, pick the specific tab, choose CSV format). ' +
-      'No database connection is needed for this, and the sheet is read fresh every time it is checked or previewed - editing it later shows up here too.',
+      '. In Google Sheets, choose File > Share > Publish to Web, select the specific tab, and choose CSV as the format. ' +
+      'No database connection is required, and the sheet is read fresh each time it is checked or previewed, so later edits will appear here automatically.',
   }));
 
   const urlInput = document.createElement('input');
@@ -987,8 +1078,8 @@ function pasteSheetLinkForMapping(requirements, pickerArea) {
   urlInput.placeholder = 'https://docs.google.com/spreadsheets/d/.../pub?output=csv';
   pickerArea.appendChild(urlInput);
 
-  const checkBtn = el('button', {className: 'btn btn-primary', text: 'Check link'});
-  const backBtn = el('button', {className: 'btn', text: 'Back to table search'});
+  const checkBtn = el('button', {className: 'btn btn-primary', text: 'Check Link'});
+  const backBtn = el('button', {className: 'btn', text: 'Back to Table Search'});
   backBtn.addEventListener('click', function() { startMapping(requirements); });
   pickerArea.appendChild(checkBtn);
   pickerArea.appendChild(backBtn);
@@ -1000,7 +1091,7 @@ function pasteSheetLinkForMapping(requirements, pickerArea) {
     const url = urlInput.value.trim();
     clear(statusArea);
     if (!url) {
-      statusArea.appendChild(el('div', {className: 'error-box', text: 'Paste a link first.'}));
+      statusArea.appendChild(el('div', {className: 'error-box', text: 'Please paste a link before continuing.'}));
       return;
     }
 
@@ -1022,7 +1113,7 @@ function pasteSheetLinkForMapping(requirements, pickerArea) {
     }
 
     const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
-    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Map this sheet to ' + requirements.label + ':'}));
+    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Map this sheet to ' + requirements.label}));
     const formArea = el('div');
     statusArea.appendChild(formArea);
     buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
@@ -1066,7 +1157,7 @@ async function previewMapping(datasetName) {
 
   resultArea.appendChild(buildRowsTable(data.rows));
   if (data.truncated) {
-    resultArea.appendChild(el('div', {className: 'truncated-note', text: 'Showing the first ' + data.row_count + ' rows - there may be more.'}));
+    resultArea.appendChild(el('div', {className: 'truncated-note', text: 'Showing the first ' + data.row_count + ' rows. There may be more.'}));
   }
 }
 

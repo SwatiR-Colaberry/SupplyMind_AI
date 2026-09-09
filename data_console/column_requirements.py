@@ -66,8 +66,8 @@ DELIVERY_RECORDS = DatasetRequirements(
         ColumnRequirement("actual_date", "When the delivery actually arrived", "2025-06-30"),
     ],
     optional=[
-        ColumnRequirement("supplier", "The supplier's name - without it, that row can't be scored per-supplier", "Acme Supply"),
-        ColumnRequirement("transportation_cost", "The delivery's shipping cost - only used for cost figures", "1200.00"),
+        ColumnRequirement("supplier", "The supplier's name — without it, that row cannot be scored per supplier", "Acme Supply"),
+        ColumnRequirement("transportation_cost", "The delivery's shipping cost — used only for cost figures", "1200.00"),
     ],
 )
 
