@@ -58,6 +58,71 @@ def test_save_mapping_from_file_with_a_field_marked_unavailable_saves_without_it
     assert sorted(saved.unavailable_fields) == ["daily_demand_rate", "lead_time_days", "safety_stock"]
 
 
+def test_save_mapping_from_file_with_a_computed_date_field_saves_without_a_direct_mapping(tmp_path):
+    # The real scenario: a delivery export with an order date plus a
+    # "days for shipment (scheduled)" day count, instead of an explicit
+    # expected-delivery-date column.
+    store = MappingStore(tmp_path / "mappings.json")
+    with patch(
+        "data_console.file_mapping_service.file_store.read_upload_columns",
+        return_value=["po_id", "order date", "days scheduled", "actual date"],
+    ):
+        save_mapping_from_file(
+            "delivery_records",
+            "file-1",
+            "delivery.csv",
+            {"po_id": "po_id", "actual_date": "actual date"},
+            computed_date_fields={"expected_date": {"base_date_column": "order date", "offset_days_column": "days scheduled"}},
+            store=store,
+        )
+
+    saved = store.get("delivery_records")
+    assert saved.column_mapping == {"po_id": "po_id", "actual_date": "actual date"}
+    assert saved.computed_date_fields == {
+        "expected_date": {"base_date_column": "order date", "offset_days_column": "days scheduled"}
+    }
+
+
+def test_save_mapping_from_file_rejects_a_computed_date_field_referencing_a_missing_column(tmp_path):
+    store = MappingStore(tmp_path / "mappings.json")
+    with patch(
+        "data_console.file_mapping_service.file_store.read_upload_columns",
+        return_value=["po_id", "order date", "actual date"],  # no "days scheduled"
+    ):
+        with pytest.raises(SchemaMappingError, match="days scheduled"):
+            save_mapping_from_file(
+                "delivery_records",
+                "file-1",
+                "delivery.csv",
+                {"po_id": "po_id", "actual_date": "actual date"},
+                computed_date_fields={"expected_date": {"base_date_column": "order date", "offset_days_column": "days scheduled"}},
+                store=store,
+            )
+
+    assert store.get("delivery_records") is None
+
+
+def test_preview_file_mapping_computes_the_date_field_and_merges_it_into_each_row():
+    mapping = DatasetMapping(
+        status="mapped",
+        file_id="file-1",
+        filename="delivery.csv",
+        column_mapping={"po_id": "po_id", "actual_date": "actual date"},
+        source_kind="file",
+        computed_date_fields={"expected_date": {"base_date_column": "order date", "offset_days_column": "days scheduled"}},
+    )
+    with patch(
+        "data_console.file_mapping_service.file_store.read_upload_columns",
+        return_value=["po_id", "order date", "days scheduled", "actual date"],
+    ), patch(
+        "data_console.file_mapping_service.file_store.read_upload_rows",
+        return_value=[{"po_id": "PO-1", "order date": "2026-01-01", "days scheduled": "4", "actual date": "2026-01-08"}],
+    ):
+        result = preview_file_mapping("delivery_records", mapping)
+
+    assert result.rows == [{"po_id": "PO-1", "actual_date": "2026-01-08", "expected_date": "2026-01-05"}]
+
+
 def test_save_mapping_from_file_rejects_an_incomplete_mapping(tmp_path):
     store = MappingStore(tmp_path / "mappings.json")
     with patch("data_console.file_mapping_service.file_store.read_upload_columns", return_value=["sku"]):

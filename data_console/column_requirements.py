@@ -26,6 +26,15 @@ class ColumnRequirement:
     name: str
     description: str
     example: str
+    # True only for a field whose value is a calendar date - lets the
+    # data-console mapping UI offer "compute this from another date column
+    # plus a day-offset column" as an alternative to a direct column pick,
+    # for a real-world export that records a base date and a lead-time/
+    # transit day count instead of the date itself (e.g. an order date plus
+    # "days for shipment (scheduled)", rather than an explicit expected-
+    # delivery-date column). Meaningless for a non-date field like sku or
+    # quantity, so it defaults False.
+    is_date: bool = False
 
 
 @dataclass(frozen=True)
@@ -40,7 +49,7 @@ CUSTOMER_ORDERS = DatasetRequirements(
     dataset_name="customer_orders",
     label="Customer Orders",
     required=[
-        ColumnRequirement("order_date", "The date an order was placed", "2025-08-15"),
+        ColumnRequirement("order_date", "The date an order was placed", "2025-08-15", is_date=True),
         ColumnRequirement("quantity", "How many units were ordered", "120"),
     ],
 )
@@ -62,8 +71,8 @@ DELIVERY_RECORDS = DatasetRequirements(
     label="Delivery Records",
     required=[
         ColumnRequirement("po_id", "The purchase order's ID", "PO-1003"),
-        ColumnRequirement("expected_date", "When the delivery was supposed to arrive", "2025-06-15"),
-        ColumnRequirement("actual_date", "When the delivery actually arrived", "2025-06-30"),
+        ColumnRequirement("expected_date", "When the delivery was supposed to arrive", "2025-06-15", is_date=True),
+        ColumnRequirement("actual_date", "When the delivery actually arrived", "2025-06-30", is_date=True),
     ],
     optional=[
         ColumnRequirement("supplier", "The supplier's name — without it, that row cannot be scored per supplier", "Acme Supply"),

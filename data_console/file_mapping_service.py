@@ -28,7 +28,7 @@ from data_console.mapping_store import DatasetMapping, MappingStore
 from data_console.mapping_validation import validate_column_mapping
 from data_console.query_builder import PREVIEW_ROW_LIMIT
 from data_integration.audit_trail import AuditStore
-from data_integration.connection_profile import remap_rows
+from data_integration.connection_profile import remap_and_compute_rows
 
 # Same stable single-tenant id mapping_service.py uses for its own audit
 # records - duplicated rather than imported since it's module-private
@@ -57,6 +57,7 @@ def save_mapping_from_file(
     filename: str,
     column_mapping: dict[str, str],
     unavailable_fields: frozenset[str] = frozenset(),
+    computed_date_fields: dict[str, dict[str, str]] | None = None,
     store: MappingStore | None = None,
 ) -> None:
     """Validates every mapped column against the file's real current headers, then persists.
@@ -64,14 +65,18 @@ def save_mapping_from_file(
     `unavailable_fields` are required fields explicitly declared genuinely
     absent from this file - exempt from the completeness check (see
     mapping_validation.validate_column_mapping()'s own docstring).
+    `computed_date_fields` are required date fields derived from another
+    real column's date plus a third real column's day count instead - see
+    data_integration.connection_profile.compute_date_fields().
 
     Raises SchemaMappingError (incomplete mapping, or a mapped column that
     doesn't actually exist in the file) or UnknownUploadError - nothing is
     ever saved unless validation against the real file passes, the same
     validate-before-persist contract every other source kind follows.
     """
+    computed_date_fields = computed_date_fields or {}
     real_columns = file_store.read_upload_columns(file_id)
-    validate_column_mapping(dataset_kind, real_columns, column_mapping, unavailable_fields)
+    validate_column_mapping(dataset_kind, real_columns, column_mapping, unavailable_fields, computed_date_fields)
     (store or MappingStore()).save(
         dataset_kind,
         DatasetMapping(
@@ -81,6 +86,7 @@ def save_mapping_from_file(
             column_mapping=column_mapping,
             source_kind="file",
             unavailable_fields=sorted(unavailable_fields),
+            computed_date_fields=computed_date_fields,
         ),
     )
 
@@ -93,10 +99,12 @@ def preview_file_mapping(dataset_kind: str, mapping: DatasetMapping) -> MappingP
     Raises SchemaMappingError or UnknownUploadError.
     """
     real_columns = file_store.read_upload_columns(mapping.file_id)
-    validate_column_mapping(dataset_kind, real_columns, mapping.column_mapping, frozenset(mapping.unavailable_fields))
+    validate_column_mapping(
+        dataset_kind, real_columns, mapping.column_mapping, frozenset(mapping.unavailable_fields), mapping.computed_date_fields
+    )
 
     raw_rows = file_store.read_upload_rows(mapping.file_id)
-    remapped = remap_rows(raw_rows, mapping.column_mapping)
+    remapped = remap_and_compute_rows(raw_rows, mapping.column_mapping, mapping.computed_date_fields)
     truncated = len(remapped) > PREVIEW_ROW_LIMIT
     capped = remapped[:PREVIEW_ROW_LIMIT]
 

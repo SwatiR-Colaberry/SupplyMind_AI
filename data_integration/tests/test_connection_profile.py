@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from unittest.mock import patch
 
 import pytest
@@ -7,7 +9,9 @@ from data_integration.config import PostgresConfig
 from data_integration.connection_profile import (
     ConnectionProfile,
     SchemaMappingError,
+    compute_date_fields,
     fetch_profile_data,
+    remap_and_compute_rows,
     remap_rows,
     validate_against_live_schema,
     validate_mapping_completeness,
@@ -19,7 +23,10 @@ _PG = PostgresConfig(host="db.acme.example", port=5432, database="acme", user="u
 
 
 def _profile(
-    dataset_kind: str, column_mapping: dict[str, str], unavailable_fields: frozenset[str] = frozenset()
+    dataset_kind: str,
+    column_mapping: dict[str, str],
+    unavailable_fields: frozenset[str] = frozenset(),
+    computed_date_fields: dict[str, dict[str, str]] | None = None,
 ) -> ConnectionProfile:
     return ConnectionProfile(
         tenant_id="acme",
@@ -28,6 +35,7 @@ def _profile(
         query="SELECT * FROM orders",
         column_mapping=column_mapping,
         unavailable_fields=unavailable_fields,
+        computed_date_fields=computed_date_fields or {},
     )
 
 
@@ -119,6 +127,93 @@ def test_validate_against_live_schema_skips_a_field_declared_unavailable():
         mock_fetch.return_value = ["SKU", "OnHand"]  # the unavailable fields' columns genuinely don't exist
 
         validate_against_live_schema(profile)  # must not raise
+
+
+# --- computed_date_fields ---
+
+
+def test_a_required_date_field_declared_computed_is_exempt_from_completeness():
+    # A real export with an order date plus a scheduled-days column instead
+    # of an explicit expected-delivery-date column.
+    profile = _profile(
+        "delivery_records",
+        {"po_id": "PONumber", "actual_date": "ReceivedDate"},
+        computed_date_fields={"expected_date": {"base_date_column": "OrderDate", "offset_days_column": "ScheduledDays"}},
+    )
+
+    validate_mapping_completeness(profile)  # must not raise
+
+
+def test_validate_against_live_schema_checks_both_columns_a_computed_field_references():
+    profile = _profile(
+        "delivery_records",
+        {"po_id": "PONumber", "actual_date": "ReceivedDate"},
+        computed_date_fields={"expected_date": {"base_date_column": "OrderDate", "offset_days_column": "ScheduledDays"}},
+    )
+    with patch("data_integration.connection_profile.postgres_connector.fetch_columns") as mock_fetch:
+        mock_fetch.return_value = ["PONumber", "ReceivedDate", "OrderDate", "ScheduledDays"]
+
+        validate_against_live_schema(profile)  # must not raise
+
+
+def test_validate_against_live_schema_raises_when_a_computed_field_references_a_missing_column():
+    profile = _profile(
+        "delivery_records",
+        {"po_id": "PONumber", "actual_date": "ReceivedDate"},
+        computed_date_fields={"expected_date": {"base_date_column": "OrderDate", "offset_days_column": "ScheduledDays"}},
+    )
+    with patch("data_integration.connection_profile.postgres_connector.fetch_columns") as mock_fetch:
+        mock_fetch.return_value = ["PONumber", "ReceivedDate", "OrderDate"]  # no ScheduledDays
+
+        with pytest.raises(SchemaMappingError, match="ScheduledDays"):
+            validate_against_live_schema(profile)
+
+
+def test_compute_date_fields_adds_the_base_date_plus_the_offset_in_days():
+    rows = [{"OrderDate": "2026-01-01", "ScheduledDays": "4"}, {"OrderDate": "2026-01-10", "ScheduledDays": 2}]
+    spec = {"expected_date": {"base_date_column": "OrderDate", "offset_days_column": "ScheduledDays"}}
+
+    result = compute_date_fields(rows, spec)
+
+    assert result == [{"expected_date": "2026-01-05"}, {"expected_date": "2026-01-12"}]
+
+
+def test_compute_date_fields_returns_none_when_the_base_date_does_not_parse():
+    rows = [{"OrderDate": "not-a-date", "ScheduledDays": "4"}]
+    spec = {"expected_date": {"base_date_column": "OrderDate", "offset_days_column": "ScheduledDays"}}
+
+    assert compute_date_fields(rows, spec) == [{"expected_date": None}]
+
+
+def test_compute_date_fields_returns_none_when_the_offset_is_not_numeric():
+    rows = [{"OrderDate": "2026-01-01", "ScheduledDays": "soon"}]
+    spec = {"expected_date": {"base_date_column": "OrderDate", "offset_days_column": "ScheduledDays"}}
+
+    assert compute_date_fields(rows, spec) == [{"expected_date": None}]
+
+
+def test_compute_date_fields_returns_none_when_the_base_date_column_is_missing_from_the_row():
+    rows = [{"ScheduledDays": "4"}]
+    spec = {"expected_date": {"base_date_column": "OrderDate", "offset_days_column": "ScheduledDays"}}
+
+    assert compute_date_fields(rows, spec) == [{"expected_date": None}]
+
+
+def test_remap_and_compute_rows_merges_directly_mapped_and_computed_fields():
+    rows = [{"PONumber": "PO-1", "ReceivedDate": "2026-01-08", "OrderDate": "2026-01-01", "ScheduledDays": "4"}]
+    column_mapping = {"po_id": "PONumber", "actual_date": "ReceivedDate"}
+    computed_date_fields = {"expected_date": {"base_date_column": "OrderDate", "offset_days_column": "ScheduledDays"}}
+
+    result = remap_and_compute_rows(rows, column_mapping, computed_date_fields)
+
+    assert result == [{"po_id": "PO-1", "actual_date": "2026-01-08", "expected_date": "2026-01-05"}]
+
+
+def test_remap_and_compute_rows_with_no_computed_fields_behaves_exactly_like_remap_rows():
+    rows = [{"PONumber": "PO-1", "ReceivedDate": "2026-01-08"}]
+    column_mapping = {"po_id": "PONumber", "actual_date": "ReceivedDate"}
+
+    assert remap_and_compute_rows(rows, column_mapping, {}) == remap_rows(rows, column_mapping)
 
 
 def test_error_message_names_the_tenant():

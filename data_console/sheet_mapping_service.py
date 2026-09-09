@@ -21,7 +21,7 @@ from data_console.mapping_validation import validate_column_mapping
 from data_console.query_builder import PREVIEW_ROW_LIMIT
 from data_console.sheet_fetcher import fetch_sheet_csv
 from data_integration.audit_trail import AuditStore
-from data_integration.connection_profile import remap_rows
+from data_integration.connection_profile import remap_and_compute_rows
 
 # Same stable single-tenant id mapping_service.py/file_mapping_service.py
 # each use for their own audit records - duplicated for the same reason
@@ -59,6 +59,7 @@ def save_mapping_from_sheet(
     url: str,
     column_mapping: dict[str, str],
     unavailable_fields: frozenset[str] = frozenset(),
+    computed_date_fields: dict[str, dict[str, str]] | None = None,
     store: MappingStore | None = None,
 ) -> None:
     """Validates every mapped column against the sheet's real current headers, then persists.
@@ -66,12 +67,16 @@ def save_mapping_from_sheet(
     `unavailable_fields` are required fields explicitly declared genuinely
     absent from this sheet - exempt from the completeness check (see
     mapping_validation.validate_column_mapping()'s own docstring).
+    `computed_date_fields` are required date fields derived from another
+    real column's date plus a third real column's day count instead - see
+    data_integration.connection_profile.compute_date_fields().
 
     Raises InvalidSheetUrlError, SheetFetchError, or SchemaMappingError -
     nothing is ever saved unless validation against the live sheet passes.
     """
+    computed_date_fields = computed_date_fields or {}
     columns, _ = _fetch_columns_and_rows(url)
-    validate_column_mapping(dataset_kind, columns, column_mapping, unavailable_fields)
+    validate_column_mapping(dataset_kind, columns, column_mapping, unavailable_fields, computed_date_fields)
     (store or MappingStore()).save(
         dataset_kind,
         DatasetMapping(
@@ -80,6 +85,7 @@ def save_mapping_from_sheet(
             column_mapping=column_mapping,
             source_kind="sheet",
             unavailable_fields=sorted(unavailable_fields),
+            computed_date_fields=computed_date_fields,
         ),
     )
 
@@ -93,9 +99,11 @@ def preview_sheet_mapping(dataset_kind: str, mapping: DatasetMapping) -> Mapping
     Raises InvalidSheetUrlError, SheetFetchError, or SchemaMappingError.
     """
     columns, rows = _fetch_columns_and_rows(mapping.sheet_url)
-    validate_column_mapping(dataset_kind, columns, mapping.column_mapping, frozenset(mapping.unavailable_fields))
+    validate_column_mapping(
+        dataset_kind, columns, mapping.column_mapping, frozenset(mapping.unavailable_fields), mapping.computed_date_fields
+    )
 
-    remapped = remap_rows(rows, mapping.column_mapping)
+    remapped = remap_and_compute_rows(rows, mapping.column_mapping, mapping.computed_date_fields)
     truncated = len(remapped) > PREVIEW_ROW_LIMIT
     capped = remapped[:PREVIEW_ROW_LIMIT]
 

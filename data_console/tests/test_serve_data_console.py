@@ -412,6 +412,7 @@ def test_post_mapping_validates_and_saves_then_shows_up_in_get_mappings(server, 
         "sheet_url": None,
         "column_mapping": {"sku": "item_sku", "current_stock": "on_hand"},
         "unavailable_fields": [],
+        "computed_date_fields": {},
     }
 
 
@@ -446,6 +447,44 @@ def test_post_mapping_returns_400_when_unavailable_fields_is_not_a_list_of_strin
     )
     assert status == 400
     assert "unavailable_fields" in data["error"]
+
+
+def test_post_mapping_with_computed_date_fields_saves_and_shows_up_in_get_mappings(server, isolated_mapping_store):
+    # A real delivery export with an order date plus a "days scheduled"
+    # count instead of an explicit expected-delivery-date column.
+    with patch("data_console.mapping_service.get_postgres_config"), \
+         patch("data_console.mapping_service.validate_profile"):
+        status, data = _post(
+            server, "/api/mappings/delivery_records",
+            {
+                "table": "acme_deliveries",
+                "column_mapping": {"po_id": "po_id", "actual_date": "actual_date"},
+                "computed_date_fields": {
+                    "expected_date": {"base_date_column": "order_date", "offset_days_column": "days_scheduled"}
+                },
+            },
+        )
+
+    assert status == 200
+    assert data == {"saved": True}
+
+    status, data = _get(server, "/api/mappings")
+    assert data["mappings"]["delivery_records"]["computed_date_fields"] == {
+        "expected_date": {"base_date_column": "order_date", "offset_days_column": "days_scheduled"}
+    }
+
+
+def test_post_mapping_returns_400_when_a_computed_date_field_spec_is_incomplete(server, isolated_mapping_store):
+    status, data = _post(
+        server, "/api/mappings/delivery_records",
+        {
+            "table": "acme_deliveries",
+            "column_mapping": {"po_id": "po_id"},
+            "computed_date_fields": {"expected_date": {"base_date_column": "order_date"}},  # missing offset_days_column
+        },
+    )
+    assert status == 400
+    assert "computed_date_fields" in data["error"]
 
 
 def test_post_mapping_returns_400_and_saves_nothing_when_validation_fails(server, isolated_mapping_store):
@@ -615,6 +654,7 @@ def test_post_mapping_from_query_validates_and_saves_then_shows_up_in_get_mappin
         "sheet_url": None,
         "column_mapping": {"sku": "sku"},
         "unavailable_fields": [],
+        "computed_date_fields": {},
     }
 
 
@@ -975,6 +1015,7 @@ def test_post_mapping_from_sheet_validates_and_saves_then_shows_up_in_get_mappin
         "sheet_url": _SHEET_URL,
         "column_mapping": {"order_date": "order_dt", "quantity": "qty"},
         "unavailable_fields": [],
+        "computed_date_fields": {},
     }
 
 

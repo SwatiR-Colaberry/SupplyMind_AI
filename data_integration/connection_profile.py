@@ -33,13 +33,14 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any, Literal
 
 from data_integration import postgres_connector
 from data_integration.audit_trail import AuditStore
 from data_integration.config import PostgresConfig
 from inventory_risk.data_quality import REQUIRED_FIELDS as INVENTORY_REQUIRED_FIELDS
-from risk_detection.anomaly_detection import REQUIRED_DELIVERY_FIELDS
+from risk_detection.anomaly_detection import REQUIRED_DELIVERY_FIELDS, parse_delivery_date
 
 DatasetKind = Literal["customer_orders", "inventory", "delivery_records"]
 
@@ -87,6 +88,15 @@ class ConnectionProfile:
     # rather than crashing - see StockoutRiskAgent.run()'s own handling of
     # quality.clean_rows being empty.
     unavailable_fields: frozenset[str] = field(default_factory=frozenset)
+    # Canonical date fields to derive rather than read directly: canonical
+    # field name -> {"base_date_column": ..., "offset_days_column": ...}.
+    # For a tenant whose export records a base date plus a lead-time/transit
+    # day count instead of the target date itself (e.g. an order date plus
+    # "days for shipment (scheduled)", rather than an explicit expected-
+    # delivery-date column) - see compute_date_fields() below for the actual
+    # arithmetic. A field named here is exempt from the "must be in
+    # column_mapping" check the same way a field in unavailable_fields is.
+    computed_date_fields: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 class SchemaMappingError(ValueError):
@@ -100,9 +110,18 @@ def validate_mapping_completeness(profile: ConnectionProfile) -> None:
     connection attempt, so a profile missing a required mapping never gets
     as far as a live query. A field listed in profile.unavailable_fields is
     exempt - it has been explicitly declared absent, not merely unmapped.
+    Likewise a field listed in profile.computed_date_fields - it will be
+    derived rather than read directly, so it needs no column_mapping entry
+    of its own.
     """
     required = REQUIRED_FIELDS_BY_DATASET_KIND[profile.dataset_kind]
-    missing = [f for f in required if f not in profile.unavailable_fields and not profile.column_mapping.get(f)]
+    missing = [
+        f
+        for f in required
+        if f not in profile.unavailable_fields
+        and f not in profile.computed_date_fields
+        and not profile.column_mapping.get(f)
+    ]
     if missing:
         raise SchemaMappingError(
             f"tenant '{profile.tenant_id}' ({profile.dataset_kind}) is missing a column mapping "
@@ -128,9 +147,16 @@ def validate_against_live_schema(profile: ConnectionProfile) -> None:
         for canonical_field in required
         # A required field with no entry in column_mapping at all is only
         # possible here because validate_mapping_completeness() above already
-        # confirmed it's in unavailable_fields - nothing to check against the
-        # live schema for a column that was never claimed to exist.
+        # confirmed it's in unavailable_fields or computed_date_fields -
+        # nothing to check against the live schema for a column that was
+        # never claimed to exist directly.
         if canonical_field in profile.column_mapping and profile.column_mapping[canonical_field] not in live_columns
+    ]
+    missing += [
+        f"{canonical_field} -> '{real_column}'"
+        for canonical_field, spec in profile.computed_date_fields.items()
+        for real_column in (spec["base_date_column"], spec["offset_days_column"])
+        if real_column not in live_columns
     ]
     if missing:
         raise SchemaMappingError(
@@ -164,6 +190,52 @@ def remap_rows(rows: list[dict[str, Any]], column_mapping: dict[str, str]) -> li
     meaningful to downstream code.
     """
     return [{canonical: row.get(actual) for canonical, actual in column_mapping.items()} for row in rows]
+
+
+def compute_date_fields(rows: list[dict[str, Any]], computed_date_fields: dict[str, dict[str, str]]) -> list[dict[str, Any]]:
+    """Derives each computed field's value as base_date_column's value plus
+    offset_days_column's value (in days), per row.
+
+    Pure - no I/O. Reuses risk_detection.anomaly_detection.parse_delivery_date
+    for the base date rather than re-implementing date parsing - see that
+    function's own docstring for why duplicating it is explicitly
+    discouraged (two disagreeing notions of "which dates are parseable"
+    would silently diverge). A row whose base date doesn't parse, or whose
+    offset isn't a real number, gets None for that field - the same
+    "flag it, don't crash" contract remap_rows() documents for a missing
+    mapped column, so a bad row here is caught downstream as a data-quality
+    issue on that field exactly the way a missing direct mapping already is.
+    """
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        computed_row: dict[str, Any] = {}
+        for canonical_field, spec in computed_date_fields.items():
+            base = parse_delivery_date(row.get(spec["base_date_column"]))
+            offset_raw = row.get(spec["offset_days_column"])
+            try:
+                offset_days = float(offset_raw)
+            except (TypeError, ValueError):
+                offset_days = None
+            computed_row[canonical_field] = (
+                (base + timedelta(days=offset_days)).isoformat() if base is not None and offset_days is not None else None
+            )
+        result.append(computed_row)
+    return result
+
+
+def remap_and_compute_rows(
+    rows: list[dict[str, Any]], column_mapping: dict[str, str], computed_date_fields: dict[str, dict[str, str]]
+) -> list[dict[str, Any]]:
+    """remap_rows() plus compute_date_fields(), merged per row - the one combined
+    row-transform every source kind's fetch/preview path should call, so a
+    computed field's derived value ends up alongside directly-mapped fields
+    in the same canonical-keyed row, rather than each caller re-deriving
+    the merge itself."""
+    remapped = remap_rows(rows, column_mapping)
+    if not computed_date_fields:
+        return remapped
+    computed = compute_date_fields(rows, computed_date_fields)
+    return [{**r, **c} for r, c in zip(remapped, computed)]
 
 
 def _content_fingerprint(rows: list[dict[str, Any]]) -> str:
@@ -212,7 +284,7 @@ def fetch_profile_data(profile: ConnectionProfile, audit_store: AuditStore) -> l
         )
         raise
 
-    remapped = remap_rows(raw_rows, profile.column_mapping)
+    remapped = remap_and_compute_rows(raw_rows, profile.column_mapping, profile.computed_date_fields)
     audit_store.record(
         idempotency_key=f"{dataset_label}:{_content_fingerprint(remapped)}",
         dataset=dataset_label,

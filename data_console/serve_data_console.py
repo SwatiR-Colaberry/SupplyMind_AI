@@ -41,7 +41,7 @@ from typing import Callable
 from urllib.parse import unquote
 
 from data_console import schema_inspector
-from data_console.column_requirements import ALL_DATASETS, BY_NAME, DatasetRequirements
+from data_console.column_requirements import ALL_DATASETS, BY_NAME, ColumnRequirement, DatasetRequirements
 from data_console.file_mapping_service import probe_upload_columns, save_mapping_from_file
 from data_console.file_store import MAX_UPLOAD_BYTES, UnknownUploadError, UnsafeArchiveError, extract_csvs_from_zip, save_upload
 from data_console.logging_setup import get_logger
@@ -246,6 +246,7 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   .status-unavailable .status-badge { background: var(--neutral-tint); color: var(--neutral); }
   .mapping-status-line { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 10px; }
   .mapping-unavailable-note { font-size: 12px; color: var(--warning); background: var(--warning-tint); border-radius: 7px; padding: 7px 10px; margin: -2px 0 12px; }
+  .mapping-computed-note { font-size: 12px; color: var(--brand-dark); background: var(--brand-tint); border-radius: 7px; padding: 7px 10px; margin: -2px 0 12px; }
   .mapping-fields { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 12px; line-height: 1.6; }
   .mapping-fields .field-line { margin: 2px 0; }
   .mapping-fields .field-optional { color: var(--ink-faint); }
@@ -262,6 +263,10 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
     display: flex; align-items: center; gap: 5px; width: auto; flex: none; color: var(--ink-faint); font-size: 12px; white-space: nowrap; cursor: pointer;
   }
   .mapping-form-row label.unavailable-check input[type="checkbox"] { flex: none; margin: 0; }
+  .mapping-compute-row {
+    margin-left: 150px; margin-top: -3px; padding: 8px 10px; background: var(--neutral-tint); border-radius: 7px;
+  }
+  .mapping-compute-row > label, .mapping-compute-row > label:first-child { width: auto; flex-shrink: 0; color: var(--ink-faint); font-size: 11.5px; }
   .table-scroll { overflow-x: auto; max-width: 100%; }
   .sql-input {
     width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px;
@@ -700,6 +705,16 @@ function renderMappingCards() {
       card.appendChild(el('div', {
         className: 'mapping-unavailable-note',
         text: 'Not available in this dataset: ' + status.unavailable_fields.join(', ') + ' — any analysis needing these will be skipped.',
+      }));
+    }
+    if (status.status === 'mapped' && status.computed_date_fields && Object.keys(status.computed_date_fields).length > 0) {
+      const computedDescriptions = Object.keys(status.computed_date_fields).map(function(fieldName) {
+        const spec = status.computed_date_fields[fieldName];
+        return fieldName + ' = "' + spec.base_date_column + '" + "' + spec.offset_days_column + '" day(s)';
+      });
+      card.appendChild(el('div', {
+        className: 'mapping-computed-note',
+        text: 'Computed: ' + computedDescriptions.join('; ') + '.',
       }));
     }
     card.appendChild(buildFieldsList(requirements));
@@ -1276,6 +1291,19 @@ function renderTablePicker(requirements, pickerArea, tables) {
 function buildMappingFieldForm(requirements, columnNames, suggestions, formArea, onSave) {
   const fieldSelects = {};
   const unavailableChecks = {};
+  const computeChecks = {}; // field.name -> {checkbox, baseSelect, offsetSelect}
+  function dateColumnSelect() {
+    const select = document.createElement('select');
+    const blank = el('option', {text: 'Choose a column...'});
+    blank.value = '';
+    select.appendChild(blank);
+    columnNames.forEach(function(name) {
+      const opt = el('option', {text: name});
+      opt.value = name;
+      select.appendChild(opt);
+    });
+    return select;
+  }
   function buildFieldRow(field, required) {
     const row = el('div', {className: 'mapping-form-row'});
     row.appendChild(el('label', {text: field.name + (required ? ' *' : '')}));
@@ -1293,29 +1321,77 @@ function buildMappingFieldForm(requirements, columnNames, suggestions, formArea,
     row.appendChild(select);
     fieldSelects[field.name] = select;
 
+    if (!required) return row;
+
     // Required fields only: a dataset genuinely missing this column (e.g. a
     // transaction-level export with no safety_stock) shouldn't be blocked
     // from mapping everything else - checking this exempts just this field
     // from the "every required field must be mapped" rule below. Whatever
     // calculation needs it is skipped with a clear reason instead of
     // crashing (see StockoutRiskAgent's own handling of a missing field).
-    if (required) {
-      const unavailableLabel = document.createElement('label');
-      unavailableLabel.className = 'unavailable-check';
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      unavailableChecks[field.name] = checkbox;
-      checkbox.addEventListener('change', function() {
-        select.disabled = checkbox.checked;
-        if (checkbox.checked) select.value = '';
+    const unavailableLabel = document.createElement('label');
+    unavailableLabel.className = 'unavailable-check';
+    const unavailableCheckbox = document.createElement('input');
+    unavailableCheckbox.type = 'checkbox';
+    unavailableChecks[field.name] = unavailableCheckbox;
+    unavailableLabel.appendChild(unavailableCheckbox);
+    unavailableLabel.appendChild(document.createTextNode('Not available in this dataset'));
+    row.appendChild(unavailableLabel);
+
+    // Date fields only: a real export that records a base date plus a
+    // lead-time/transit day count (e.g. an order date + "days for shipment
+    // (scheduled)") instead of the target date itself - compute it rather
+    // than requiring a direct column that doesn't exist.
+    let computeCheckbox = null;
+    let computeRow = null;
+    if (field.is_date) {
+      const computeLabel = document.createElement('label');
+      computeLabel.className = 'unavailable-check';
+      computeCheckbox = document.createElement('input');
+      computeCheckbox.type = 'checkbox';
+      computeLabel.appendChild(computeCheckbox);
+      computeLabel.appendChild(document.createTextNode('Compute from another date + a day offset'));
+      row.appendChild(computeLabel);
+
+      computeRow = el('div', {className: 'mapping-form-row mapping-compute-row'});
+      computeRow.style.display = 'none';
+      const baseSelect = dateColumnSelect();
+      const offsetSelect = dateColumnSelect();
+      computeRow.appendChild(el('label', {text: 'Base date column'}));
+      computeRow.appendChild(baseSelect);
+      computeRow.appendChild(el('label', {text: 'Day offset column'}));
+      computeRow.appendChild(offsetSelect);
+      computeChecks[field.name] = {checkbox: computeCheckbox, baseSelect: baseSelect, offsetSelect: offsetSelect, row: computeRow};
+
+      computeCheckbox.addEventListener('change', function() {
+        computeRow.style.display = computeCheckbox.checked ? 'flex' : 'none';
+        select.disabled = computeCheckbox.checked || unavailableCheckbox.checked;
+        if (computeCheckbox.checked) {
+          select.value = '';
+          unavailableCheckbox.checked = false;
+        }
       });
-      unavailableLabel.appendChild(checkbox);
-      unavailableLabel.appendChild(document.createTextNode('Not available in this dataset'));
-      row.appendChild(unavailableLabel);
     }
+
+    unavailableCheckbox.addEventListener('change', function() {
+      select.disabled = unavailableCheckbox.checked || (computeCheckbox && computeCheckbox.checked);
+      if (unavailableCheckbox.checked) {
+        select.value = '';
+        if (computeCheckbox) {
+          computeCheckbox.checked = false;
+          computeRow.style.display = 'none';
+        }
+      }
+    });
+
+    row._computeRow = computeRow;
     return row;
   }
-  requirements.required.forEach(function(f) { formArea.appendChild(buildFieldRow(f, true)); });
+  requirements.required.forEach(function(f) {
+    const row = buildFieldRow(f, true);
+    formArea.appendChild(row);
+    if (row._computeRow) formArea.appendChild(row._computeRow);
+  });
   requirements.optional.forEach(function(f) { formArea.appendChild(buildFieldRow(f, false)); });
 
   const errorArea = el('div');
@@ -1324,13 +1400,17 @@ function buildMappingFieldForm(requirements, columnNames, suggestions, formArea,
   const saveBtn = el('button', {className: 'btn btn-primary', text: 'Save Mapping'});
   saveBtn.addEventListener('click', async function() {
     clear(errorArea);
-    const missingRequired = requirements.required.filter(function(f) {
-      return !fieldSelects[f.name].value && !unavailableChecks[f.name].checked;
-    });
+    function fieldIsSatisfied(f) {
+      if (fieldSelects[f.name].value) return true;
+      if (unavailableChecks[f.name].checked) return true;
+      const compute = computeChecks[f.name];
+      return !!(compute && compute.checkbox.checked && compute.baseSelect.value && compute.offsetSelect.value);
+    }
+    const missingRequired = requirements.required.filter(function(f) { return !fieldIsSatisfied(f); });
     if (missingRequired.length > 0) {
       errorArea.appendChild(el('div', {
         className: 'error-box',
-        text: 'Please choose a column for (or mark "Not available" for): ' + missingRequired.map(function(f) { return f.name; }).join(', '),
+        text: 'Please choose a column for (or mark "Not available", or finish "Compute from..." for): ' + missingRequired.map(function(f) { return f.name; }).join(', '),
       }));
       return;
     }
@@ -1342,9 +1422,16 @@ function buildMappingFieldForm(requirements, columnNames, suggestions, formArea,
     const unavailableFields = Object.keys(unavailableChecks).filter(function(fieldName) {
       return unavailableChecks[fieldName].checked;
     });
+    const computedDateFields = {};
+    Object.keys(computeChecks).forEach(function(fieldName) {
+      const compute = computeChecks[fieldName];
+      if (compute.checkbox.checked && compute.baseSelect.value && compute.offsetSelect.value) {
+        computedDateFields[fieldName] = {base_date_column: compute.baseSelect.value, offset_days_column: compute.offsetSelect.value};
+      }
+    });
 
     saveBtn.disabled = true;
-    const result = await onSave(columnMapping, unavailableFields);
+    const result = await onSave(columnMapping, unavailableFields, computedDateFields);
     saveBtn.disabled = false;
     clear(errorArea);
     if (result.error) {
@@ -1383,11 +1470,11 @@ async function pickTableForMapping(requirements, tableName, pickerArea) {
   const cancelBtn = el('button', {className: 'btn', text: 'Cancel'});
   cancelBtn.addEventListener('click', function() { clear(pickerArea); });
 
-  buildMappingFieldForm(requirements, columnNames, suggestions, pickerArea, async function(columnMapping, unavailableFields) {
+  buildMappingFieldForm(requirements, columnNames, suggestions, pickerArea, async function(columnMapping, unavailableFields, computedDateFields) {
     const resp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({table: tableName, column_mapping: columnMapping, unavailable_fields: unavailableFields}),
+      body: JSON.stringify({table: tableName, column_mapping: columnMapping, unavailable_fields: unavailableFields, computed_date_fields: computedDateFields}),
     });
     return resp.json();
   });
@@ -1450,11 +1537,11 @@ function writeQueryForMapping(requirements, pickerArea) {
     statusArea.appendChild(el('div', {className: 'placeholder', text: "Map this query's columns to " + requirements.label}));
     const formArea = el('div');
     statusArea.appendChild(formArea);
-    buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping, unavailableFields) {
+    buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping, unavailableFields, computedDateFields) {
       const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-query', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({query: queryText, column_mapping: columnMapping, unavailable_fields: unavailableFields}),
+        body: JSON.stringify({query: queryText, column_mapping: columnMapping, unavailable_fields: unavailableFields, computed_date_fields: computedDateFields}),
       });
       return saveResp.json();
     });
@@ -1487,11 +1574,11 @@ function renderFileMappingForm(requirements, fileId, filename, columns, suggeste
   container.appendChild(el('div', {className: 'placeholder', text: 'Map "' + filename + '" to ' + requirements.label}));
   const formArea = el('div');
   container.appendChild(formArea);
-  buildMappingFieldForm(requirements, columns, suggestions, formArea, async function(columnMapping, unavailableFields) {
+  buildMappingFieldForm(requirements, columns, suggestions, formArea, async function(columnMapping, unavailableFields, computedDateFields) {
     const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-file', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({file_id: fileId, filename: filename, column_mapping: columnMapping, unavailable_fields: unavailableFields}),
+      body: JSON.stringify({file_id: fileId, filename: filename, column_mapping: columnMapping, unavailable_fields: unavailableFields, computed_date_fields: computedDateFields}),
     });
     return saveResp.json();
   });
@@ -1603,11 +1690,11 @@ async function probeAndRenderSheetForm(requirements, url, container) {
   container.appendChild(el('div', {className: 'placeholder', text: 'Map this sheet to ' + requirements.label}));
   const formArea = el('div');
   container.appendChild(formArea);
-  buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping, unavailableFields) {
+  buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping, unavailableFields, computedDateFields) {
     const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-sheet', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url: url, column_mapping: columnMapping, unavailable_fields: unavailableFields}),
+      body: JSON.stringify({url: url, column_mapping: columnMapping, unavailable_fields: unavailableFields, computed_date_fields: computedDateFields}),
     });
     return saveResp.json();
   });
@@ -1743,12 +1830,16 @@ def _suggested_mappings_for(columns: list[str]) -> dict[str, dict[str, str | Non
     return {requirements.dataset_name: suggest_mapping(columns, requirements) for requirements in ALL_DATASETS}
 
 
+def _column_requirement_to_dict(c: ColumnRequirement) -> dict:
+    return {"name": c.name, "description": c.description, "example": c.example, "is_date": c.is_date}
+
+
 def _dataset_requirements_to_dict(requirements: DatasetRequirements) -> dict:
     return {
         "dataset_name": requirements.dataset_name,
         "label": requirements.label,
-        "required": [{"name": c.name, "description": c.description, "example": c.example} for c in requirements.required],
-        "optional": [{"name": c.name, "description": c.description, "example": c.example} for c in requirements.optional],
+        "required": [_column_requirement_to_dict(c) for c in requirements.required],
+        "optional": [_column_requirement_to_dict(c) for c in requirements.optional],
     }
 
 
@@ -1767,6 +1858,7 @@ def _mapping_status_dict(mapping: DatasetMapping | None) -> dict:
         "sheet_url": mapping.sheet_url,
         "column_mapping": mapping.column_mapping,
         "unavailable_fields": mapping.unavailable_fields,
+        "computed_date_fields": mapping.computed_date_fields,
     }
 
 
@@ -1788,6 +1880,29 @@ def _parse_unavailable_fields(payload: dict) -> frozenset[str]:
     if not isinstance(unavailable_fields, list) or not all(isinstance(f, str) for f in unavailable_fields):
         raise ValueError("'unavailable_fields' must be a list of strings")
     return frozenset(unavailable_fields)
+
+
+def _parse_computed_date_fields(payload: dict) -> dict[str, dict[str, str]]:
+    """Optional: canonical date field names the user has declared computed rather
+    than mapped directly, via the mapping form's "Compute from another date + a
+    day offset" option - {canonical_field: {"base_date_column": ..., "offset_days_column": ...}}.
+    Defaults to none, so an older client that never sends this key behaves exactly
+    as before."""
+    computed_date_fields = payload.get("computed_date_fields", {})
+    if not isinstance(computed_date_fields, dict):
+        raise ValueError("'computed_date_fields' must be an object")
+    for field_name, spec in computed_date_fields.items():
+        if (
+            not isinstance(field_name, str)
+            or not isinstance(spec, dict)
+            or set(spec.keys()) != {"base_date_column", "offset_days_column"}
+            or not all(isinstance(v, str) and v for v in spec.values())
+        ):
+            raise ValueError(
+                "'computed_date_fields' values must be objects with non-empty "
+                "'base_date_column' and 'offset_days_column' string fields"
+            )
+    return computed_date_fields
 
 
 class DataConsoleHandler(BaseHTTPRequestHandler):
@@ -2032,12 +2147,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 raise ValueError("'table' must be a non-empty string")
             column_mapping = _parse_column_mapping(payload)
             unavailable_fields = _parse_unavailable_fields(payload)
+            computed_date_fields = _parse_computed_date_fields(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": f"invalid request: {exc}"})
             return
 
         try:
-            save_mapping(dataset_kind, table, column_mapping, unavailable_fields)
+            save_mapping(dataset_kind, table, column_mapping, unavailable_fields, computed_date_fields)
         except SchemaMappingError as exc:
             self._send_json(400, {"error": str(exc)})
             return
@@ -2091,12 +2207,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 raise ValueError("'query' must be a non-empty string")
             column_mapping = _parse_column_mapping(payload)
             unavailable_fields = _parse_unavailable_fields(payload)
+            computed_date_fields = _parse_computed_date_fields(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": f"invalid request: {exc}"})
             return
 
         try:
-            save_mapping_from_query(dataset_kind, query, column_mapping, unavailable_fields)
+            save_mapping_from_query(dataset_kind, query, column_mapping, unavailable_fields, computed_date_fields)
         except UnsafeQueryError as exc:
             self._send_json(400, {"error": str(exc)})
             return
@@ -2198,12 +2315,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 raise ValueError("'filename' must be a non-empty string")
             column_mapping = _parse_column_mapping(payload)
             unavailable_fields = _parse_unavailable_fields(payload)
+            computed_date_fields = _parse_computed_date_fields(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": f"invalid request: {exc}"})
             return
 
         try:
-            save_mapping_from_file(dataset_kind, file_id, filename, column_mapping, unavailable_fields)
+            save_mapping_from_file(dataset_kind, file_id, filename, column_mapping, unavailable_fields, computed_date_fields)
         except UnknownUploadError as exc:
             self._send_json(400, {"error": str(exc)})
             return
@@ -2243,12 +2361,13 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
                 raise ValueError("'url' must be a non-empty string")
             column_mapping = _parse_column_mapping(payload)
             unavailable_fields = _parse_unavailable_fields(payload)
+            computed_date_fields = _parse_computed_date_fields(payload)
         except (json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": f"invalid request: {exc}"})
             return
 
         try:
-            save_mapping_from_sheet(dataset_kind, url, column_mapping, unavailable_fields)
+            save_mapping_from_sheet(dataset_kind, url, column_mapping, unavailable_fields, computed_date_fields)
         except (InvalidSheetUrlError, SheetFetchError) as exc:
             self._send_json(400, {"error": str(exc)})
             return

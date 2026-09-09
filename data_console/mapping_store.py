@@ -47,6 +47,12 @@ class DatasetMapping:
     # JSON unchanged; every consumer converts to a set/frozenset as needed.
     # Defaults to [] so a mapping saved before this field existed still loads.
     unavailable_fields: list[str] = field(default_factory=list)
+    # Canonical date field name -> {"base_date_column", "offset_days_column"} -
+    # a field derived at read time as one real column's date plus another
+    # real column's day count, rather than read directly from a mapped
+    # column. See data_integration.connection_profile.compute_date_fields().
+    # Defaults to {} so a mapping saved before this field existed still loads.
+    computed_date_fields: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 class MappingStore:

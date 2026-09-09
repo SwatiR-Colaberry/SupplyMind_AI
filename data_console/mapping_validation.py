@@ -19,14 +19,23 @@ def validate_column_mapping(
     real_columns: list[str],
     column_mapping: dict[str, str],
     unavailable_fields: frozenset[str] = frozenset(),
+    computed_date_fields: dict[str, dict[str, str]] | None = None,
 ) -> None:
     """`unavailable_fields` are canonical field names explicitly declared as
     genuinely absent from this source's real columns - exempt from the
     "every required field must be mapped" check below, the same exemption
     connection_profile.validate_mapping_completeness() grants a Postgres-backed
-    profile for the identical reason."""
+    profile for the identical reason. `computed_date_fields` (canonical field
+    name -> {"base_date_column", "offset_days_column"}) are exempt for the
+    same reason - see connection_profile.compute_date_fields() for how they're
+    actually derived; here they're only checked for existence."""
+    computed_date_fields = computed_date_fields or {}
     required = REQUIRED_FIELDS_BY_DATASET_KIND[dataset_kind]
-    missing = [f for f in required if f not in unavailable_fields and not column_mapping.get(f)]
+    missing = [
+        f
+        for f in required
+        if f not in unavailable_fields and f not in computed_date_fields and not column_mapping.get(f)
+    ]
     if missing:
         raise SchemaMappingError(
             f"dataset {dataset_kind!r} is missing a column mapping for required field(s): {', '.join(missing)}"
@@ -34,6 +43,12 @@ def validate_column_mapping(
     real_column_set = set(real_columns)
     not_found = [
         f"{canonical} -> '{actual}'" for canonical, actual in column_mapping.items() if actual not in real_column_set
+    ]
+    not_found += [
+        f"{canonical} -> '{real_column}'"
+        for canonical, spec in computed_date_fields.items()
+        for real_column in (spec["base_date_column"], spec["offset_days_column"])
+        if real_column not in real_column_set
     ]
     if not_found:
         raise SchemaMappingError(
