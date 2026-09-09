@@ -338,6 +338,10 @@ async function loadTables() {
   clear(content);
   if (!data.connected) {
     content.appendChild(el('div', {className: 'not-connected', text: data.message}));
+    content.appendChild(el('div', {
+      className: 'placeholder',
+      text: 'Free-form table browsing needs a connected database. If you just want to map Customer Orders, Inventory, or Delivery Records, you can do that above with a CSV file or a Google Sheets link instead — no database required.',
+    }));
     return;
   }
   if (data.tables.length === 0) {
@@ -765,6 +769,10 @@ async function startMapping(requirements) {
     searchInput.disabled = true;
     searchInput.placeholder = 'No database connected';
     resultsBox.appendChild(el('div', {className: 'not-connected', text: data.message}));
+    resultsBox.appendChild(el('div', {
+      className: 'placeholder',
+      text: 'To connect a database, set that environment variable and restart this page. Otherwise, you can map this dataset directly using one of the options below — no database required.',
+    }));
     return;
   }
 
