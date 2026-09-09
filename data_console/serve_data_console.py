@@ -100,7 +100,7 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Connect Your Data</title>
+<title>Data Console</title>
 <style>
   :root {
     --ink: #131826;
@@ -131,7 +131,11 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
     -webkit-font-smoothing: antialiased;
   }
   .page { max-width: 1180px; margin: 0 auto; padding: 32px 32px 56px; }
-  h1 { font-size: 23px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 4px; }
+  .kicker {
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--brand); background: var(--brand-tint); padding: 3px 10px; border-radius: 100px; margin-bottom: 10px;
+  }
+  h1 { font-size: 25px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 4px; }
   h2 {
     font-size: 12px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
     color: var(--ink-soft); margin: 0 0 12px;
@@ -140,9 +144,41 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   .topbar { margin-bottom: 24px; }
   .meta { color: var(--ink-soft); font-size: 14px; margin-bottom: 20px; }
   .intro {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-    padding: 16px 18px; margin-bottom: 24px; font-size: 13.5px; line-height: 1.55; color: var(--ink-soft);
+    background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand); border-radius: 10px;
+    padding: 16px 18px; margin-bottom: 28px; font-size: 13.5px; line-height: 1.55; color: var(--ink-soft);
   }
+  .connect-section { margin-bottom: 32px; }
+  .connect-card {
+    background: linear-gradient(165deg, var(--brand-tint) 0%, var(--surface) 55%);
+    border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow);
+  }
+  .connect-intro { font-size: 13.5px; color: var(--ink-soft); margin-bottom: 18px; max-width: 640px; line-height: 1.5; }
+  .connect-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .connect-option {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 16px 18px;
+    cursor: pointer; font-family: inherit; transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  }
+  .connect-option:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(19,24,38,0.09); border-color: #c7cde0; }
+  .connect-option .connect-icon {
+    width: 34px; height: 34px; border-radius: 9px; background: var(--brand-tint); color: var(--brand);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .connect-option .connect-icon svg { width: 18px; height: 18px; }
+  .connect-option-title { font-size: 13.5px; font-weight: 650; color: var(--ink); }
+  .connect-option-desc { font-size: 12px; color: var(--ink-faint); line-height: 1.45; }
+  .connect-status-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    background: var(--success-tint); border: 1px solid #bfe3cf; border-radius: 12px; padding: 16px 20px;
+  }
+  .connect-status-left { display: flex; align-items: center; gap: 12px; }
+  .connect-status-icon {
+    width: 32px; height: 32px; border-radius: 100px; background: var(--success); color: white;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .connect-status-icon svg { width: 16px; height: 16px; }
+  .connect-status-title { font-size: 13.5px; font-weight: 650; color: var(--ink); }
+  .connect-status-desc { font-size: 12.5px; color: var(--ink-soft); }
   .layout { display: flex; gap: 16px; align-items: flex-start; }
   .panel {
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
@@ -197,8 +233,9 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   .mapping-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 14px; }
   .mapping-card {
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-    padding: 16px 18px; box-shadow: var(--shadow);
+    padding: 16px 18px; box-shadow: var(--shadow); transition: box-shadow 0.15s ease, border-color 0.15s ease;
   }
+  .mapping-card:hover { border-color: #c7cde0; box-shadow: 0 4px 14px rgba(19,24,38,0.07); }
   .mapping-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
   .status-badge {
     flex-shrink: 0; font-size: 10.5px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase;
@@ -236,16 +273,21 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
 <body>
 <div class="page">
   <div class="topbar">
-    <h1>Connect Your Data</h1>
-    <div class="meta">Browse your connected database and prepare your data for analysis.</div>
+    <div class="kicker">Supply Chain Data</div>
+    <h1>Data Console</h1>
+    <div class="meta">Connect your data once, then map it to the datasets this system needs for analysis.</div>
   </div>
   <div class="intro">
-    This page reads directly from your connected database — it never modifies or moves your data.
-    Start by mapping each of the three datasets this system needs (Customer Orders, Inventory, and
-    Delivery Records) to the tables that hold them, even if their column names differ from ours.
+    This page reads directly from your data — it never modifies or moves anything. Connect a database,
+    a CSV file, or a Google Sheet once below, then map each of the three datasets this system needs
+    (Customer Orders, Inventory, and Delivery Records) to it, even if the column names differ from ours.
     You can also browse any table directly, select specific columns, join a second table, and preview
     the results. Every preview is limited to $row_limit rows so this page never attempts to load your
     entire database at once.
+  </div>
+  <div class="connect-section" id="connect-section">
+    <h2>Connect Your Data</h2>
+    <div class="placeholder">Loading...</div>
   </div>
   <div class="mapping-section" id="mapping-section">
     <h2>Map Your Data</h2>
@@ -694,6 +736,14 @@ function renderMappingCards() {
 async function startMapping(requirements) {
   const pickerArea = document.getElementById('mapping-picker-' + requirements.dataset_name);
   clear(pickerArea);
+
+  // A source already connected via "Connect Your Data" at the top of the
+  // page - jump straight to mapping from it instead of asking again.
+  if (activeSourceKind) {
+    await renderFromActiveSource(requirements, pickerArea);
+    return;
+  }
+
   pickerArea.appendChild(el('div', {className: 'placeholder', text: 'Checking for a connected database...'}));
 
   const resp = await fetch('/api/tables');
@@ -705,6 +755,52 @@ async function startMapping(requirements) {
     return;
   }
 
+  activeSourceKind = 'database';
+  renderTablePicker(requirements, pickerArea, data.tables);
+}
+
+// Once a source has been connected once at the top of the page, every
+// dataset card jumps straight to mapping from it - the same full chooser
+// (renderSourceChooser) is still one click away via "Use a different
+// source," for the real case where one dataset genuinely lives somewhere
+// else than the other two.
+async function renderFromActiveSource(requirements, pickerArea) {
+  function appendOverrideLink() {
+    const link = el('button', {className: 'btn-link', text: 'Use a different source for this dataset'});
+    link.addEventListener('click', function() { renderSourceChooser(requirements, pickerArea, null); });
+    pickerArea.appendChild(link);
+  }
+
+  if (activeSourceKind === 'file' && lastFileUpload) {
+    renderFileMappingForm(requirements, lastFileUpload.fileId, lastFileUpload.filename, lastFileUpload.columns, lastFileUpload.suggestedMappings, pickerArea);
+    appendOverrideLink();
+    return;
+  }
+  if (activeSourceKind === 'zip' && lastZipUpload) {
+    renderZipMemberPicker(requirements, lastZipUpload.filename, lastZipUpload.members, pickerArea);
+    appendOverrideLink();
+    return;
+  }
+  if (activeSourceKind === 'sheet' && lastSheetLink) {
+    await probeAndRenderSheetForm(requirements, lastSheetLink.url, pickerArea);
+    appendOverrideLink();
+    return;
+  }
+
+  // 'database', or a stale/cleared reference to a file/zip that no longer
+  // matches its cache (e.g. "Change" was clicked at the top since) - fall
+  // back to a fresh connection check the same way the no-source path does.
+  pickerArea.appendChild(el('div', {className: 'placeholder', text: 'Checking for a connected database...'}));
+  const resp = await fetch('/api/tables');
+  const data = await resp.json();
+  clear(pickerArea);
+  if (!data.connected) {
+    renderSourceChooser(requirements, pickerArea, data.message);
+    return;
+  }
+  // renderTablePicker already offers its own query/upload/Sheets
+  // alternatives inline, so no separate override link is needed here -
+  // unlike the file/zip/sheet cases above, which are single-purpose views.
   renderTablePicker(requirements, pickerArea, data.tables);
 }
 
@@ -859,6 +955,246 @@ function renderDbConnectionForm(container, onBack, onConnected) {
     }
 
     await onConnected();
+  });
+}
+
+// Builds one small inline icon from a *fixed, code-authored* SVG string -
+// never with any variable/user-derived content interpolated in. innerHTML
+// is otherwise avoided everywhere else in this page (see the top-of-script
+// comment on why), but a hardcoded icon literal carries no injection
+// surface at all, since nothing external ever reaches this function's
+// argument. document.createElement can't be used for SVG directly - it
+// requires the SVG namespace, which parsing markup already handles
+// correctly.
+function icon(svgMarkup) {
+  const span = document.createElement('span');
+  span.innerHTML = svgMarkup;
+  return span.firstChild;
+}
+
+const _ICON_DATABASE = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"></ellipse><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"></path><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"></path></svg>').cloneNode(true);
+const _ICON_FILE = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M12 18v-6"></path><path d="M9.5 14.5 12 12l2.5 2.5"></path></svg>').cloneNode(true);
+const _ICON_SHEET = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18"></path><path d="M3 15h18"></path><path d="M9 3v18"></path></svg>').cloneNode(true);
+const _ICON_CHECK = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>').cloneNode(true);
+
+// --- Connect Your Data (top-level, once-per-session) ---
+// Lets a person connect a database, upload a file, or paste a Sheets link
+// exactly once, instead of being asked again inside each of the 3 dataset
+// cards below. `activeSourceKind` is intentionally only ever set by *this*
+// section's own successful actions - a per-card "use a different source"
+// override (see renderSourceChooser) still updates lastFileUpload/
+// lastZipUpload for the *reuse* links, but must not silently change what
+// every other still-unmapped card defaults to.
+let activeSourceKind = null; // 'database' | 'file' | 'zip' | 'sheet' | null
+
+async function loadConnectSection() {
+  const section = document.getElementById('connect-section');
+  if (activeSourceKind) {
+    renderConnectedStatus(section);
+    return;
+  }
+  const resp = await fetch('/api/tables');
+  const data = await resp.json();
+  if (data.connected) {
+    // A database was already reachable (e.g. via SUPPLYMIND_PG_* env vars)
+    // before this page ever loaded - treat it as this session's active
+    // source too, same as one connected through the form below.
+    activeSourceKind = 'database';
+    renderConnectedStatus(section);
+    return;
+  }
+  renderConnectChooser(section);
+}
+
+function connectSectionDescription() {
+  if (activeSourceKind === 'database') return 'Connected to a database.';
+  if (activeSourceKind === 'file' && lastFileUpload) return 'Using uploaded file "' + lastFileUpload.filename + '".';
+  if (activeSourceKind === 'zip' && lastZipUpload) return 'Using uploaded archive "' + lastZipUpload.filename + '".';
+  if (activeSourceKind === 'sheet' && lastSheetLink) return 'Using a connected Google Sheet.';
+  return 'Connected.';
+}
+
+function renderConnectedStatus(section) {
+  clear(section);
+  section.appendChild(el('h2', {text: 'Connect Your Data'}));
+  const card = el('div', {className: 'connect-status-card'});
+  const left = el('div', {className: 'connect-status-left'});
+  const iconWrap = el('div', {className: 'connect-status-icon'});
+  iconWrap.appendChild(_ICON_CHECK.cloneNode(true));
+  left.appendChild(iconWrap);
+  const text = el('div');
+  text.appendChild(el('div', {className: 'connect-status-title', text: 'Data source connected'}));
+  text.appendChild(el('div', {className: 'connect-status-desc', text: connectSectionDescription()}));
+  left.appendChild(text);
+  card.appendChild(left);
+  const changeBtn = el('button', {className: 'btn', text: 'Change'});
+  changeBtn.addEventListener('click', function() {
+    activeSourceKind = null;
+    loadConnectSection();
+  });
+  card.appendChild(changeBtn);
+  section.appendChild(card);
+}
+
+function buildConnectOption(iconNode, title, description, onClick) {
+  const option = document.createElement('button');
+  option.type = 'button';
+  option.className = 'connect-option';
+  const iconWrap = el('div', {className: 'connect-icon'});
+  iconWrap.appendChild(iconNode);
+  option.appendChild(iconWrap);
+  option.appendChild(el('div', {className: 'connect-option-title', text: title}));
+  option.appendChild(el('div', {className: 'connect-option-desc', text: description}));
+  option.addEventListener('click', onClick);
+  return option;
+}
+
+function renderConnectChooser(section) {
+  clear(section);
+  section.appendChild(el('h2', {text: 'Connect Your Data'}));
+  const card = el('div', {className: 'connect-card'});
+  card.appendChild(el('div', {
+    className: 'connect-intro',
+    text: 'Connect once here, and Customer Orders, Inventory, and Delivery Records below can all map from it - no need to enter this again for each one.',
+  }));
+
+  const options = el('div', {className: 'connect-options'});
+  const formArea = el('div');
+
+  options.appendChild(buildConnectOption(_ICON_DATABASE.cloneNode(true), 'Connect a Database', 'Postgres host, port, database, user, and password.', function() {
+    clear(options);
+    renderDbConnectionForm(formArea, function() { renderConnectChooser(section); }, function() {
+      activeSourceKind = 'database';
+      loadConnectSection();
+      return Promise.resolve();
+    });
+  }));
+  options.appendChild(buildConnectOption(_ICON_FILE.cloneNode(true), 'Upload a CSV or ZIP File', 'One file, or a zip of several, covering some or all of your data.', function() {
+    clear(options);
+    renderTopLevelUpload(formArea, section);
+  }));
+  options.appendChild(buildConnectOption(_ICON_SHEET.cloneNode(true), 'Connect a Google Sheet', 'A public "Publish to web as CSV" link.', function() {
+    clear(options);
+    renderTopLevelSheetConnect(formArea, section);
+  }));
+
+  card.appendChild(options);
+  card.appendChild(formArea);
+  section.appendChild(card);
+}
+
+function renderTopLevelUpload(container, section) {
+  clear(container);
+  container.appendChild(el('div', {
+    className: 'placeholder',
+    text: 'Upload a CSV file (or a .zip archive of several) - its columns will be offered when mapping each dataset below.',
+  }));
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.csv,.zip,text/csv,application/zip';
+  container.appendChild(fileInput);
+
+  const uploadBtn = el('button', {className: 'btn btn-primary', text: 'Upload'});
+  const backBtn = el('button', {className: 'btn', text: 'Back'});
+  backBtn.addEventListener('click', function() { renderConnectChooser(section); });
+  container.appendChild(uploadBtn);
+  container.appendChild(backBtn);
+
+  const statusArea = el('div');
+  container.appendChild(statusArea);
+
+  uploadBtn.addEventListener('click', async function() {
+    const file = fileInput.files[0];
+    clear(statusArea);
+    if (!file) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: 'Please choose a file to upload.'}));
+      return;
+    }
+
+    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Uploading...'}));
+    uploadBtn.disabled = true;
+
+    const resp = await fetch('/api/uploads', {
+      method: 'POST',
+      headers: {'Content-Type': file.type || 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name)},
+      body: file,
+    });
+    const data = await resp.json();
+    uploadBtn.disabled = false;
+    clear(statusArea);
+
+    if (data.error) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: data.error}));
+      return;
+    }
+
+    if (data.kind === 'zip') {
+      lastZipUpload = {filename: data.filename, members: data.members};
+      activeSourceKind = 'zip';
+    } else {
+      lastFileUpload = {fileId: data.file_id, filename: data.filename, columns: data.columns, suggestedMappings: data.suggested_mappings};
+      activeSourceKind = 'file';
+    }
+    loadConnectSection();
+  });
+}
+
+function renderTopLevelSheetConnect(container, section) {
+  clear(container);
+  container.appendChild(el('div', {
+    className: 'placeholder',
+    text: 'Paste a Google Sheets CSV link (File > Share > Publish to Web, pick the specific tab, choose CSV as the format). ' +
+      'The sheet is read fresh every time it is checked or mapped, so later edits always show up.',
+  }));
+
+  const urlInput = document.createElement('input');
+  urlInput.type = 'text';
+  urlInput.className = 'search-input';
+  urlInput.placeholder = 'https://docs.google.com/spreadsheets/d/.../pub?output=csv';
+  container.appendChild(urlInput);
+
+  const checkBtn = el('button', {className: 'btn btn-primary', text: 'Connect'});
+  const backBtn = el('button', {className: 'btn', text: 'Back'});
+  backBtn.addEventListener('click', function() { renderConnectChooser(section); });
+  container.appendChild(checkBtn);
+  container.appendChild(backBtn);
+
+  const statusArea = el('div');
+  container.appendChild(statusArea);
+
+  checkBtn.addEventListener('click', async function() {
+    const url = urlInput.value.trim();
+    clear(statusArea);
+    if (!url) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: 'Please paste a link before continuing.'}));
+      return;
+    }
+
+    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Checking link...'}));
+    checkBtn.disabled = true;
+
+    // Only checked for validity here, never cached - the sheet's own
+    // content is always re-fetched fresh at mapping/preview time (see
+    // sheet_mapping_service.py's own docstring for why), so nothing about
+    // its columns is stored, only the URL itself.
+    const resp = await fetch('/api/sheet-columns', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: url}),
+    });
+    const data = await resp.json();
+    checkBtn.disabled = false;
+    clear(statusArea);
+
+    if (data.error) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: data.error}));
+      return;
+    }
+
+    lastSheetLink = {url: url};
+    activeSourceKind = 'sheet';
+    loadConnectSection();
   });
 }
 
@@ -1098,6 +1434,12 @@ let lastFileUpload = null; // {fileId, filename, columns, suggestedMappings}
 // on page reload, which is fine for a same-session convenience.
 let lastZipUpload = null; // {filename, members}
 
+// Cached after a link is connected via "Connect Your Data" - only the URL
+// itself, never its columns/rows, since a Google Sheet is always read
+// fresh at mapping/preview time (see sheet_mapping_service.py's own
+// docstring for why) rather than treated as a frozen snapshot.
+let lastSheetLink = null; // {url}
+
 // Shared by a direct CSV upload and a member picked out of an uploaded zip -
 // both end up with exactly the same shape (one file's columns to map into
 // one dataset), so both render through this one form-building path.
@@ -1198,6 +1540,41 @@ function uploadFileForMapping(requirements, pickerArea) {
   });
 }
 
+// Shared by the manual "paste a link" flow below and the "already
+// connected a Sheet at the top" auto-flow: probes the URL fresh (never
+// cached - see sheet_mapping_service.py's own docstring for why) and
+// renders the mapping form directly into `container` on success.
+async function probeAndRenderSheetForm(requirements, url, container) {
+  clear(container);
+  container.appendChild(el('div', {className: 'placeholder', text: 'Checking the connected Google Sheet...'}));
+
+  const resp = await fetch('/api/sheet-columns', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url: url}),
+  });
+  const data = await resp.json();
+  clear(container);
+
+  if (data.error) {
+    container.appendChild(el('div', {className: 'error-box', text: data.error}));
+    return;
+  }
+
+  const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
+  container.appendChild(el('div', {className: 'placeholder', text: 'Map this sheet to ' + requirements.label}));
+  const formArea = el('div');
+  container.appendChild(formArea);
+  buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
+    const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-sheet', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: url, column_mapping: columnMapping}),
+    });
+    return saveResp.json();
+  });
+}
+
 function pasteSheetLinkForMapping(requirements, pickerArea) {
   clear(pickerArea);
 
@@ -1225,41 +1602,14 @@ function pasteSheetLinkForMapping(requirements, pickerArea) {
 
   checkBtn.addEventListener('click', async function() {
     const url = urlInput.value.trim();
-    clear(statusArea);
     if (!url) {
+      clear(statusArea);
       statusArea.appendChild(el('div', {className: 'error-box', text: 'Please paste a link before continuing.'}));
       return;
     }
-
-    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Checking link...'}));
     checkBtn.disabled = true;
-
-    const resp = await fetch('/api/sheet-columns', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url: url}),
-    });
-    const data = await resp.json();
+    await probeAndRenderSheetForm(requirements, url, statusArea);
     checkBtn.disabled = false;
-    clear(statusArea);
-
-    if (data.error) {
-      statusArea.appendChild(el('div', {className: 'error-box', text: data.error}));
-      return;
-    }
-
-    const suggestions = data.suggested_mappings[requirements.dataset_name] || {};
-    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Map this sheet to ' + requirements.label}));
-    const formArea = el('div');
-    statusArea.appendChild(formArea);
-    buildMappingFieldForm(requirements, data.columns, suggestions, formArea, async function(columnMapping) {
-      const saveResp = await fetch('/api/mappings/' + encodeURIComponent(requirements.dataset_name) + '/from-sheet', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({url: url, column_mapping: columnMapping}),
-      });
-      return saveResp.json();
-    });
   });
 }
 
@@ -1297,6 +1647,7 @@ async function previewMapping(datasetName) {
   }
 }
 
+loadConnectSection();
 loadTables();
 loadMappingSection();
 </script>
