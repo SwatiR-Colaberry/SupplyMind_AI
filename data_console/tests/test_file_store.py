@@ -56,6 +56,18 @@ def test_a_leading_byte_order_mark_is_stripped_from_the_first_header(uploads_dir
     assert read_upload_columns(file_id) == ["sku", "current_stock"]
 
 
+def test_a_non_utf8_file_falls_back_to_latin_1_instead_of_crashing(uploads_dir):
+    # A real production bug: the DataCo Supply Chain dataset (a real public
+    # CSV export) embeds Portuguese city names as Latin-1 bytes that are not
+    # valid UTF-8 - reading it used to raise UnicodeDecodeError deep inside
+    # this module with no caller prepared to catch it, which crashed the
+    # whole upload request and left the browser hanging with no response.
+    content = "order_date,quantity,city\n2025-08-15,120,".encode("utf-8") + "São Paulo\n".encode("latin-1")
+    file_id = save_upload("orders.csv", content)
+    assert read_upload_columns(file_id) == ["order_date", "quantity", "city"]
+    assert read_upload_rows(file_id) == [{"order_date": "2025-08-15", "quantity": "120", "city": "São Paulo"}]
+
+
 def test_reading_an_unknown_file_id_raises(uploads_dir):
     with pytest.raises(UnknownUploadError):
         read_upload_columns("not-a-real-id")

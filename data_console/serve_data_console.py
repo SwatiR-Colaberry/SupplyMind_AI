@@ -37,6 +37,7 @@ import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from string import Template
+from typing import Callable
 from urllib.parse import unquote
 
 from data_console import schema_inspector
@@ -1258,6 +1259,33 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
         pass  # data_console's own JSON logger covers what's worth logging
 
     def do_GET(self) -> None:
+        self._dispatch_safely(self._route_get)
+
+    def do_POST(self) -> None:
+        self._dispatch_safely(self._route_post)
+
+    def do_DELETE(self) -> None:
+        self._dispatch_safely(self._route_delete)
+
+    def _dispatch_safely(self, route: Callable[[], None]) -> None:
+        """Guarantees the client always gets *some* response, even when a route
+        handler raises something no caller down that specific path was prepared
+        to catch (a real example: a real-world CSV's non-UTF-8 encoding crashing
+        deep inside file-reading code). Without this, BaseHTTPRequestHandler's
+        default behavior is to log a traceback server-side and drop the
+        connection with zero bytes sent - indistinguishable, from the browser's
+        side, from an indefinite hang, since fetch() never resolves or rejects
+        in a way the calling code was watching for."""
+        try:
+            route()
+        except Exception as exc:
+            logger.error(
+                "data_console_unhandled_error",
+                extra={"event": "data_console_unhandled_error", "outcome": "failure", "error_class": type(exc).__name__, "context": {"path": self.path}},
+            )
+            self._send_json(500, {"error": f"unexpected server error ({type(exc).__name__}): {exc}"})
+
+    def _route_get(self) -> None:
         if self.path == "/":
             self._send_html(200, _PAGE_TEMPLATE.substitute(row_limit=str(PREVIEW_ROW_LIMIT)))
             return
@@ -1280,7 +1308,7 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             return
         self._send_json(404, {"error": "not found"})
 
-    def do_POST(self) -> None:
+    def _route_post(self) -> None:
         if self.path == "/api/preview":
             try:
                 raw_body = self._read_request_body()
@@ -1370,7 +1398,7 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
 
         self._send_json(404, {"error": "not found"})
 
-    def do_DELETE(self) -> None:
+    def _route_delete(self) -> None:
         match = _MAPPING_PATH_RE.match(self.path)
         if match:
             self._handle_clear_mapping(unquote(match.group(1)))

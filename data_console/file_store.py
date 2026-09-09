@@ -71,10 +71,22 @@ def _read_text(file_id: str) -> str:
     path = _path_for(file_id)
     if not path.exists():
         raise UnknownUploadError(f"no uploaded file with id {file_id!r}")
-    # utf-8-sig tolerates (and strips) a leading byte-order-mark, which
-    # Excel's own "Save as CSV UTF-8" adds and plain utf-8 decoding would
-    # otherwise leave stuck to the first header name.
-    return path.read_text(encoding="utf-8-sig")
+    raw = path.read_bytes()
+    try:
+        # utf-8-sig tolerates (and strips) a leading byte-order-mark, which
+        # Excel's own "Save as CSV UTF-8" adds and plain utf-8 decoding would
+        # otherwise leave stuck to the first header name.
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        # A real, non-malicious CSV export (e.g. Excel's plain "CSV" format,
+        # or several well-known public datasets) is very often
+        # Windows-1252/Latin-1, not UTF-8 - a live example that crashed an
+        # upload in this exact function: the DataCo Supply Chain dataset,
+        # which embeds Portuguese city/state names in Latin-1 bytes that
+        # aren't valid UTF-8. latin-1 is a single-byte encoding where every
+        # value 0x00-0xFF maps to a real character, so this fallback is
+        # guaranteed to succeed rather than raising a second time.
+        return raw.decode("latin-1")
 
 
 def parse_csv_columns(text: str) -> list[str]:

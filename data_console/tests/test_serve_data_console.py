@@ -158,6 +158,21 @@ def test_api_tables_reports_not_connected_when_postgres_is_unreachable(server):
     assert "could not connect" in data["message"]
 
 
+def test_an_unexpected_exception_returns_a_clean_500_instead_of_dropping_the_connection(server):
+    # Regression test for the failure mode a real bug hit in production: an
+    # exception type no specific `except` clause anywhere on this path was
+    # prepared for used to propagate all the way up to BaseHTTPRequestHandler's
+    # default handling, which logs a traceback server-side and drops the
+    # connection with zero bytes sent - indistinguishable, from the client's
+    # side, from an indefinite hang. `_dispatch_safely` is the safety net that
+    # guarantees a real HTTP response (500, with a readable error body) instead.
+    with patch("data_console.schema_inspector.list_tables", side_effect=RuntimeError("boom")):
+        status, data = _get(server, "/api/tables")
+
+    assert status == 500
+    assert "boom" in data["error"]
+
+
 def test_api_tables_returns_the_table_list_when_connected(server):
     with patch("data_console.schema_inspector.list_tables", return_value=["customer_orders", "inventory"]):
         status, data = _get(server, "/api/tables")
@@ -623,6 +638,21 @@ def test_post_upload_returns_file_id_columns_and_suggested_mappings(server, isol
     assert data["suggested_mappings"]["inventory"]["sku"] == "item_sku"
     assert data["suggested_mappings"]["inventory"]["current_stock"] == "on_hand"
     assert (isolated_uploads_dir / f"{data['file_id']}.csv").read_bytes() == csv_bytes
+
+
+def test_post_upload_of_a_non_utf8_csv_succeeds_instead_of_hanging(server, isolated_uploads_dir):
+    # Regression test for a real production bug: a real CSV export (the
+    # DataCo Supply Chain dataset) embeds Latin-1 bytes that are not valid
+    # UTF-8. Reading it used to raise UnicodeDecodeError deep inside
+    # file_store.py with nothing prepared to catch it, which crashed the
+    # whole request and left the browser's upload hanging with no response
+    # at all (not even an error) - this proves the full HTTP path now
+    # returns a clean 200, not that empty-connection failure.
+    csv_bytes = "order_date,quantity,city\n2025-08-15,120,".encode("utf-8") + "São Paulo\n".encode("latin-1")
+    status, data = _post_raw(server, "/api/uploads", csv_bytes, {"Content-Type": "text/csv", "X-Filename": "orders.csv"})
+
+    assert status == 200
+    assert data["columns"] == ["order_date", "quantity", "city"]
 
 
 def test_post_upload_url_decodes_the_filename_header(server, isolated_uploads_dir):
