@@ -194,12 +194,22 @@ class SupplierDelayReport:
     warnings: list[str] = field(default_factory=list)
 
 
+# Tried in order, first match wins. ISO first since it's this repo's own
+# canonical form (what compute_date_fields() and every hand-built fixture
+# in this repo's tests emit); the "%m/%d/%Y..." forms cover a real-world
+# operational export - e.g. this repo's own DataCo sample dataset's
+# "order date (DateOrders)" column, which reads "1/31/2018 22:56" - rather
+# than only the ISO form this repo happens to produce internally.
+_DATE_FORMATS: tuple[str, ...] = ("%Y-%m-%d", "%m/%d/%Y %H:%M", "%m/%d/%Y")
+
+
 def parse_delivery_date(value: Any) -> date | None:
-    """Accept a "YYYY-MM-DD" string or a native date/datetime - a
-    connector reading from a real date/timestamp column would hand back
-    the latter, not a string, so both are treated as valid input rather
-    than only the string form. Any other type or an unparseable string
-    returns None so the caller can flag the row rather than raise.
+    """Accept a "YYYY-MM-DD" or "M/D/YYYY[ H:MM]" string, or a native
+    date/datetime - a connector reading from a real date/timestamp column
+    would hand back the latter, not a string, so both are treated as valid
+    input rather than only the string forms. Any other type or a string
+    matching none of _DATE_FORMATS returns None so the caller can flag the
+    row rather than raise.
 
     Public (STORY-013) rather than module-private: supplier_evaluation
     parses the same delivery rows to compute per-supplier reliability, and
@@ -212,10 +222,12 @@ def parse_delivery_date(value: Any) -> date | None:
     if isinstance(value, date):
         return value
     if isinstance(value, str):
-        try:
-            return datetime.strptime(value, "%Y-%m-%d").date()
-        except ValueError:
-            return None
+        for fmt in _DATE_FORMATS:
+            try:
+                return datetime.strptime(value, fmt).date()
+            except ValueError:
+                continue
+        return None
     return None
 
 

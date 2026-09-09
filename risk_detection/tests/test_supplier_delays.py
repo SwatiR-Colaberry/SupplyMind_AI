@@ -2,7 +2,26 @@ from datetime import date, datetime
 
 import pytest
 
-from risk_detection.anomaly_detection import SupplierDelayError, detect_supplier_delays
+from risk_detection.anomaly_detection import SupplierDelayError, detect_supplier_delays, parse_delivery_date
+
+
+def test_parse_delivery_date_accepts_iso_strings():
+    assert parse_delivery_date("2026-01-05") == date(2026, 1, 5)
+
+
+def test_parse_delivery_date_accepts_m_d_yyyy_with_time():
+    # A real-world operational export's shape - this repo's own DataCo
+    # sample dataset's "order date (DateOrders)" column reads this way.
+    assert parse_delivery_date("1/31/2018 22:56") == date(2018, 1, 31)
+
+
+def test_parse_delivery_date_accepts_m_d_yyyy_without_time():
+    assert parse_delivery_date("1/31/2018") == date(2018, 1, 31)
+
+
+def test_parse_delivery_date_still_rejects_genuine_garbage():
+    assert parse_delivery_date("not-a-date") is None
+    assert parse_delivery_date("") is None
 
 
 def test_detect_supplier_delays_does_not_treat_a_falsy_po_id_as_missing():
