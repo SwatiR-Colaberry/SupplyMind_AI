@@ -58,11 +58,12 @@ from data_console.mapping_suggester import suggest_mapping
 from data_console.preview_runner import run_preview
 from data_console.query_builder import PREVIEW_ROW_LIMIT, InvalidSelectionError, JoinSpec, QuerySelection, SelectedColumn
 from data_console.raw_query_validator import UnsafeQueryError
+from data_console.runtime_db_config import set_runtime_config
 from data_console.sheet_fetcher import InvalidSheetUrlError, SheetFetchError
 from data_console.sheet_mapping_service import probe_sheet_columns, save_mapping_from_sheet
-from data_integration.config import MissingConfigError
+from data_integration.config import MissingConfigError, PostgresConfig
 from data_integration.connection_profile import SchemaMappingError
-from data_integration.postgres_connector import PostgresIntegrationError
+from data_integration.postgres_connector import PostgresIntegrationError, fetch_rows
 
 logger = get_logger()
 
@@ -218,7 +219,7 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   .table-search-results { max-height: 160px; overflow-y: auto; border: 1px solid var(--border-soft); border-radius: 7px; margin-bottom: 8px; }
   .mapping-form-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin: 7px 0; }
   .mapping-form-row label { width: 150px; flex-shrink: 0; color: var(--ink-soft); }
-  .mapping-form-row select { flex: 1; }
+  .mapping-form-row select, .mapping-form-row input { flex: 1; min-width: 0; max-width: 100%; margin-bottom: 0; }
   .table-scroll { overflow-x: auto; max-width: 100%; }
   .sql-input {
     width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px;
@@ -342,6 +343,11 @@ async function loadTables() {
       className: 'placeholder',
       text: 'Free-form table browsing needs a connected database. If you just want to map Customer Orders, Inventory, or Delivery Records, you can do that above with a CSV file or a Google Sheets link instead — no database required.',
     }));
+    const dbBtn = el('button', {className: 'btn btn-primary', text: 'Connect a Database'});
+    dbBtn.addEventListener('click', function() {
+      renderDbConnectionForm(content, function() { loadTables(); }, function() { return loadTables(); });
+    });
+    content.appendChild(dbBtn);
     return;
   }
   if (data.tables.length === 0) {
@@ -685,6 +691,180 @@ function renderMappingCards() {
 async function startMapping(requirements) {
   const pickerArea = document.getElementById('mapping-picker-' + requirements.dataset_name);
   clear(pickerArea);
+  pickerArea.appendChild(el('div', {className: 'placeholder', text: 'Checking for a connected database...'}));
+
+  const resp = await fetch('/api/tables');
+  const data = await resp.json();
+  clear(pickerArea);
+
+  if (!data.connected) {
+    renderSourceChooser(requirements, pickerArea, data.message);
+    return;
+  }
+
+  renderTablePicker(requirements, pickerArea, data.tables);
+}
+
+// A single CSV or zip uploaded while mapping a different dataset already
+// sits on disk - reuse it here instead of re-uploading the same (possibly
+// large) file again for a dataset whose columns happen to live in that
+// same file or bundle. Shared by the not-connected chooser and the
+// connected table picker, since either can be the first place a person
+// lands.
+function appendReuseUploadLinks(requirements, pickerArea) {
+  if (lastFileUpload) {
+    const orFileBtn = el('button', {
+      className: 'btn-link',
+      text: 'Or reuse the previously uploaded file ("' + lastFileUpload.filename + '")',
+    });
+    orFileBtn.addEventListener('click', function() {
+      clear(pickerArea);
+      const statusArea = el('div');
+      pickerArea.appendChild(statusArea);
+      renderFileMappingForm(
+        requirements, lastFileUpload.fileId, lastFileUpload.filename,
+        lastFileUpload.columns, lastFileUpload.suggestedMappings, statusArea
+      );
+    });
+    pickerArea.appendChild(orFileBtn);
+  }
+  if (lastZipUpload) {
+    const orZipBtn = el('button', {
+      className: 'btn-link',
+      text: 'Or choose a file from the previously uploaded archive ("' + lastZipUpload.filename + '")',
+    });
+    orZipBtn.addEventListener('click', function() {
+      clear(pickerArea);
+      const statusArea = el('div');
+      pickerArea.appendChild(statusArea);
+      renderZipMemberPicker(requirements, lastZipUpload.filename, lastZipUpload.members, statusArea);
+    });
+    pickerArea.appendChild(orZipBtn);
+  }
+}
+
+// The entry point when no database is connected yet: an explicit choice
+// between the three ways to provide this dataset's data, rather than a
+// disabled search box with an error message above a stack of easy-to-miss
+// links.
+function renderSourceChooser(requirements, pickerArea, notConnectedMessage) {
+  clear(pickerArea);
+  pickerArea.appendChild(el('div', {
+    className: 'placeholder',
+    text: 'How would you like to provide data for ' + requirements.label + '?',
+  }));
+
+  const dbBtn = el('button', {className: 'btn btn-primary', text: 'Connect a Database'});
+  dbBtn.addEventListener('click', function() {
+    renderDbConnectionForm(
+      pickerArea,
+      function() { renderSourceChooser(requirements, pickerArea, notConnectedMessage); },
+      function() { return startMapping(requirements); }
+    );
+  });
+  pickerArea.appendChild(dbBtn);
+
+  const uploadBtn = el('button', {className: 'btn', text: 'Upload a CSV or ZIP File'});
+  uploadBtn.addEventListener('click', function() { uploadFileForMapping(requirements, pickerArea); });
+  pickerArea.appendChild(uploadBtn);
+
+  const sheetBtn = el('button', {className: 'btn', text: 'Connect a Google Sheet'});
+  sheetBtn.addEventListener('click', function() { pasteSheetLinkForMapping(requirements, pickerArea); });
+  pickerArea.appendChild(sheetBtn);
+
+  appendReuseUploadLinks(requirements, pickerArea);
+
+  const cancelBtn = el('button', {className: 'btn', text: 'Cancel'});
+  cancelBtn.addEventListener('click', function() { clear(pickerArea); });
+  pickerArea.appendChild(cancelBtn);
+}
+
+// The connection form for "Connect a Database" - tested for real against
+// the submitted details before this session's runtime override is set, so
+// a typo never leaves the tool pointed at a connection that doesn't work.
+// The password is only ever sent once, over this one POST, to this same
+// local server; it is never written to disk or echoed back. `container` is
+// the DOM node to render into; `onBack()` returns to whatever view offered
+// this form; `onConnected()` runs after a successful connect (so a
+// per-dataset picker can resume mapping, or the top-level table browser
+// can reload its table list).
+function renderDbConnectionForm(container, onBack, onConnected) {
+  clear(container);
+  container.appendChild(el('div', {className: 'placeholder', text: 'Enter your database connection details.'}));
+
+  function field(labelText, type, placeholder) {
+    const row = el('div', {className: 'mapping-form-row'});
+    row.appendChild(el('label', {text: labelText}));
+    const input = document.createElement('input');
+    input.type = type;
+    input.className = 'search-input';
+    if (placeholder) input.placeholder = placeholder;
+    row.appendChild(input);
+    container.appendChild(row);
+    return input;
+  }
+
+  const hostInput = field('Host *', 'text', 'localhost');
+  const portInput = field('Port', 'text', '5432');
+  const databaseInput = field('Database *', 'text', 'supplymind');
+  const userInput = field('User *', 'text', 'postgres');
+  const passwordInput = field('Password *', 'password');
+
+  const connectBtn = el('button', {className: 'btn btn-primary', text: 'Connect'});
+  const backBtn = el('button', {className: 'btn', text: 'Back'});
+  backBtn.addEventListener('click', onBack);
+  container.appendChild(connectBtn);
+  container.appendChild(backBtn);
+
+  container.appendChild(el('div', {
+    className: 'guardrail-note',
+    text: 'These details are kept in memory for this session only - never written to disk. ' +
+      '(Alternative: set SUPPLYMIND_PG_HOST and the other SUPPLYMIND_PG_* environment variables and restart instead.)',
+  }));
+
+  const statusArea = el('div');
+  container.appendChild(statusArea);
+
+  connectBtn.addEventListener('click', async function() {
+    clear(statusArea);
+    if (!hostInput.value.trim() || !databaseInput.value.trim() || !userInput.value.trim() || !passwordInput.value) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: 'Host, database, user, and password are all required.'}));
+      return;
+    }
+
+    statusArea.appendChild(el('div', {className: 'placeholder', text: 'Connecting...'}));
+    connectBtn.disabled = true;
+
+    const resp = await fetch('/api/db-connection', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        host: hostInput.value.trim(),
+        port: portInput.value.trim() || 5432,
+        database: databaseInput.value.trim(),
+        user: userInput.value.trim(),
+        password: passwordInput.value,
+      }),
+    });
+    const data = await resp.json();
+    connectBtn.disabled = false;
+    clear(statusArea);
+
+    if (data.error) {
+      statusArea.appendChild(el('div', {className: 'error-box', text: data.error}));
+      return;
+    }
+
+    await onConnected();
+  });
+}
+
+// The entry point once a database is connected: search-and-pick a table,
+// with the same CSV/Sheets/custom-query alternatives still available as
+// peers, since a connected database doesn't rule out mapping one
+// particular dataset from a file instead.
+function renderTablePicker(requirements, pickerArea, tables) {
+  clear(pickerArea);
 
   const searchInput = document.createElement('input');
   searchInput.type = 'text';
@@ -707,54 +887,11 @@ async function startMapping(requirements) {
   orQueryBtn.addEventListener('click', function() { writeQueryForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orQueryBtn);
 
-  // No database needed at all for this one - a CSV's own header row (or,
-  // for a zip, the header row of whichever member is picked) stands in
-  // for a table's real columns. Kept reachable below even when
-  // '/api/tables' reports not connected (see the early return below),
-  // since a CSV-only setup with no live database is exactly the case
-  // this option exists for.
   const orUploadBtn = el('button', {className: 'btn-link', text: 'Or upload a CSV file (or a .zip archive of several)'});
   orUploadBtn.addEventListener('click', function() { uploadFileForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orUploadBtn);
 
-  // A single CSV uploaded while mapping a different dataset already sits
-  // on disk under its own file_id - reuse it here instead of re-uploading
-  // the same (possibly large) file again for a dataset whose columns
-  // happen to live in that same file (e.g. one wide export that covers
-  // every dataset this console needs).
-  if (lastFileUpload) {
-    const orFileBtn = el('button', {
-      className: 'btn-link',
-      text: 'Or reuse the previously uploaded file ("' + lastFileUpload.filename + '")',
-    });
-    orFileBtn.addEventListener('click', function() {
-      clear(pickerArea);
-      const statusArea = el('div');
-      pickerArea.appendChild(statusArea);
-      renderFileMappingForm(
-        requirements, lastFileUpload.fileId, lastFileUpload.filename,
-        lastFileUpload.columns, lastFileUpload.suggestedMappings, statusArea
-      );
-    });
-    pickerArea.appendChild(orFileBtn);
-  }
-
-  // A zip uploaded while mapping a different dataset already extracted
-  // its members onto disk - reuse them here instead of asking the file
-  // to be uploaded a second or third time to fill the other slots.
-  if (lastZipUpload) {
-    const orZipBtn = el('button', {
-      className: 'btn-link',
-      text: 'Or choose a file from the previously uploaded archive ("' + lastZipUpload.filename + '")',
-    });
-    orZipBtn.addEventListener('click', function() {
-      clear(pickerArea);
-      const statusArea = el('div');
-      pickerArea.appendChild(statusArea);
-      renderZipMemberPicker(requirements, lastZipUpload.filename, lastZipUpload.members, statusArea);
-    });
-    pickerArea.appendChild(orZipBtn);
-  }
+  appendReuseUploadLinks(requirements, pickerArea);
 
   // Also no database needed - a public Google Sheets CSV link is fetched
   // fresh on every check/preview, so editing the sheet later shows up
@@ -763,22 +900,9 @@ async function startMapping(requirements) {
   orSheetBtn.addEventListener('click', function() { pasteSheetLinkForMapping(requirements, pickerArea); });
   pickerArea.appendChild(orSheetBtn);
 
-  const resp = await fetch('/api/tables');
-  const data = await resp.json();
-  if (!data.connected) {
-    searchInput.disabled = true;
-    searchInput.placeholder = 'No database connected';
-    resultsBox.appendChild(el('div', {className: 'not-connected', text: data.message}));
-    resultsBox.appendChild(el('div', {
-      className: 'placeholder',
-      text: 'To connect a database, set that environment variable and restart this page. Otherwise, you can map this dataset directly using one of the options below — no database required.',
-    }));
-    return;
-  }
-
   function renderResults(filterText) {
     clear(resultsBox);
-    const matches = data.tables.filter(function(t) { return t.toLowerCase().indexOf(filterText.toLowerCase()) !== -1; });
+    const matches = tables.filter(function(t) { return t.toLowerCase().indexOf(filterText.toLowerCase()) !== -1; });
     matches.forEach(function(name) {
       const btn = el('button', {className: 'table-item', text: name});
       btn.addEventListener('click', function() { pickTableForMapping(requirements, name, pickerArea); });
@@ -1341,6 +1465,15 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             self._handle_query_columns(raw_body)
             return
 
+        if self.path == "/api/db-connection":
+            try:
+                raw_body = self._read_request_body()
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_connect_database(raw_body)
+            return
+
         if self.path == "/api/uploads":
             try:
                 raw_body = self._read_request_body(max_bytes=MAX_UPLOAD_BYTES)
@@ -1572,6 +1705,48 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             return
 
         self._send_json(200, {"saved": True})
+
+    def _handle_connect_database(self, raw_body: bytes) -> None:
+        """Accepts connection details typed into "Connect a Database", tests them for
+        real before committing anything, and - only on success - sets them as this
+        session's runtime override so every other Postgres-backed route (table
+        browsing, custom queries, table mapping) picks them up immediately. The
+        password is never echoed back, logged, or written to disk anywhere on this
+        path - see runtime_db_config.py's own docstring for why."""
+        try:
+            payload = json.loads(raw_body or b"{}")
+            if not isinstance(payload, dict):
+                raise ValueError("request body must be a JSON object")
+            host = payload.get("host")
+            database = payload.get("database")
+            user = payload.get("user")
+            password = payload.get("password")
+            if not isinstance(host, str) or not host.strip():
+                raise ValueError("'host' must be a non-empty string")
+            if not isinstance(database, str) or not database.strip():
+                raise ValueError("'database' must be a non-empty string")
+            if not isinstance(user, str) or not user.strip():
+                raise ValueError("'user' must be a non-empty string")
+            if not isinstance(password, str) or not password:
+                raise ValueError("'password' must be a non-empty string")
+            port_raw = payload.get("port", 5432)
+            try:
+                port = int(port_raw)
+            except (TypeError, ValueError):
+                raise ValueError("'port' must be a valid integer") from None
+            config = PostgresConfig(host=host.strip(), port=port, database=database.strip(), user=user.strip(), password=password)
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._send_json(400, {"error": f"invalid request: {exc}"})
+            return
+
+        try:
+            fetch_rows("SELECT 1", config=config)
+        except PostgresIntegrationError as exc:
+            self._send_json(400, {"error": f"Could not connect: {exc}"})
+            return
+
+        set_runtime_config(config)
+        self._send_json(200, {"connected": True, "host": config.host, "port": config.port, "database": config.database, "user": config.user})
 
     def _handle_upload(self, raw_body: bytes) -> None:
         # URL-decoded since a raw HTTP header value can't safely carry an

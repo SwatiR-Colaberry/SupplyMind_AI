@@ -19,8 +19,8 @@ import data_console
 from data_console.mapping_store import DatasetMapping, MappingStore
 from data_console.query_builder import PREVIEW_ROW_LIMIT, quote_identifier
 from data_console.raw_query_validator import validate_read_only_query
+from data_console.runtime_db_config import get_postgres_config
 from data_integration.audit_trail import AuditStore
-from data_integration.config import load_postgres_config
 from data_integration.connection_profile import ConnectionProfile, fetch_profile_data, validate_profile
 from data_integration.postgres_connector import fetch_columns
 
@@ -41,7 +41,7 @@ def _build_profile(dataset_kind: str, query: str, column_mapping: dict[str, str]
     return ConnectionProfile(
         tenant_id=_TENANT_ID,
         dataset_kind=dataset_kind,
-        postgres=load_postgres_config(),
+        postgres=get_postgres_config(),
         query=query,
         column_mapping=column_mapping,
     )
@@ -79,7 +79,7 @@ def probe_query_columns(raw_query: str) -> list[str]:
     schema_inspector.list_columns() populates them from a picked table.
     """
     cleaned = validate_read_only_query(raw_query)
-    return fetch_columns(cleaned, config=load_postgres_config())
+    return fetch_columns(cleaned, config=get_postgres_config())
 
 
 def save_mapping_from_query(

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from data_console.runtime_db_config import get_postgres_config
 from data_integration.postgres_connector import fetch_rows
 
 _LIST_TABLES_QUERY = """
@@ -44,13 +45,13 @@ class ColumnInfo:
 
 def list_tables() -> list[str]:
     """Every base table in the connected database's public schema, alphabetically."""
-    rows = fetch_rows(_LIST_TABLES_QUERY)
+    rows = fetch_rows(_LIST_TABLES_QUERY, config=get_postgres_config())
     return [row["table_name"] for row in rows]
 
 
 def list_columns(table_name: str) -> list[ColumnInfo]:
     """This table's columns in their real on-disk order. Empty if the table doesn't exist."""
-    rows = fetch_rows(_LIST_COLUMNS_QUERY, params=(table_name,))
+    rows = fetch_rows(_LIST_COLUMNS_QUERY, params=(table_name,), config=get_postgres_config())
     return [
         ColumnInfo(name=row["column_name"], data_type=row["data_type"], nullable=row["is_nullable"] == "YES")
         for row in rows
