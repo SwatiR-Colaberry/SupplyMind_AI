@@ -338,10 +338,13 @@ async function loadTables() {
   const data = await resp.json();
   clear(content);
   if (!data.connected) {
-    content.appendChild(el('div', {className: 'not-connected', text: data.message}));
+    // Deliberately not styled as an error: showing up disconnected is this
+    // page's normal starting state, not a problem to alarm someone with the
+    // moment they open it - a real error box only appears below in response
+    // to an actual attempt to connect that actually failed.
     content.appendChild(el('div', {
       className: 'placeholder',
-      text: 'Free-form table browsing needs a connected database. If you just want to map Customer Orders, Inventory, or Delivery Records, you can do that above with a CSV file or a Google Sheets link instead — no database required.',
+      text: 'Browse any table directly once a database is connected. If you just want to map Customer Orders, Inventory, or Delivery Records, you can do that above with a CSV file or a Google Sheets link instead — no database required.',
     }));
     const dbBtn = el('button', {className: 'btn btn-primary', text: 'Connect a Database'});
     dbBtn.addEventListener('click', function() {
