@@ -174,6 +174,49 @@ def test_subtitle_appears_when_provided_and_is_escaped():
     assert "&lt;b&gt;Live&lt;/b&gt; Data" in html
 
 
+def test_a_long_headline_of_distinct_segments_is_capped_with_a_more_count():
+    from dashboard.render import _condense_headline
+
+    segments = [f"PO-{i} (2 day(s) late - delay cost $600.00)" for i in range(50)]
+    condensed = _condense_headline("; ".join(segments))
+
+    assert len(condensed) < 400
+    assert "PO-0 " in condensed
+    assert "(+45 more, 50 unique of 50 total)" in condensed
+
+
+def test_a_long_headline_of_repeated_segments_collapses_the_duplicates():
+    from dashboard.render import _condense_headline
+
+    repeated = "73 (missing field(s): safety_stock, daily_demand_rate)"
+    text = "inventory data flagged for review: " + "; ".join([repeated] * 500)
+    condensed = _condense_headline(text)
+
+    assert len(condensed) < 400
+    assert condensed.count(repeated) == 2  # once embedded in the prefixed first segment, once standalone
+    assert "inventory data flagged for review: " + repeated in condensed
+    assert "(+498 more, 2 unique of 500 total)" in condensed
+
+
+def test_a_short_headline_is_never_condensed():
+    from dashboard.render import _condense_headline
+
+    assert _condense_headline("short and fine") == "short and fine"
+
+
+def test_show_details_renders_the_condensed_headline_not_the_raw_one():
+    huge_headline = "x: " + "; ".join(f"item-{i}" for i in range(1000))
+    metric = DashboardMetric(
+        metric_id="stockout_risk_agent", label="Stockout Risk", status="ok", headline=huge_headline,
+        source_agent="stockout_risk_agent",
+    )
+
+    html = render_dashboard_html(_snapshot(metrics=[metric]))
+
+    assert huge_headline not in html
+    assert "more, 1000 unique of 1000 total)" in html
+
+
 def test_a_page_assembly_failure_still_returns_a_valid_fallback_page():
     # Break something only the *success* path touches (the overall-status
     # color lookup, after the per-tile loop) so the outer except runs -

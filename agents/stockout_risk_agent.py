@@ -40,9 +40,31 @@ _RISK_SEVERITY = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 _UNKNOWN_SEVERITY = len(_RISK_SEVERITY)
 
 
-def _describe_flagged_row(flagged: FlaggedRow) -> str:
-    sku = flagged.row.get("sku", "<unknown sku>")
-    return f"{sku} ({'; '.join(flagged.reasons)})"
+def _summarize_flagged_rows(flagged_rows: list[FlaggedRow], max_examples: int = 5) -> str:
+    """One line per distinct reason, not one line per row.
+
+    Real operational data can flag the same reason (e.g. "missing field(s):
+    safety_stock, daily_demand_rate") on hundreds of rows at once. Joining
+    every row's note verbatim - the original behavior - produced a wall of
+    near-duplicate text with no more information in it than the count
+    already carries, which is unreadable in the dashboard's "Show details"
+    view. Grouping by reason and capping the SKU examples keeps every
+    distinct problem and a few concrete SKUs to look up, without the
+    per-row blowup.
+    """
+    if not flagged_rows:
+        return ""
+    by_reason: dict[str, list[str]] = {}
+    for flagged in flagged_rows:
+        reason = "; ".join(flagged.reasons)
+        by_reason.setdefault(reason, []).append(str(flagged.row.get("sku", "<unknown sku>")))
+    groups = []
+    for reason, skus in by_reason.items():
+        examples = ", ".join(skus[:max_examples])
+        if len(skus) > max_examples:
+            examples += f", +{len(skus) - max_examples} more"
+        groups.append(f"{reason} - {len(skus)} row(s) (e.g. {examples})")
+    return f"{len(flagged_rows)} inventory row(s) flagged for review: " + " | ".join(groups)
 
 
 class StockoutRiskAgent:
@@ -73,7 +95,7 @@ class StockoutRiskAgent:
         raw_rows: list[dict[str, Any]] = query.context.get("inventory_rows") or []
         quality = assess_inventory_data_quality(raw_rows)
 
-        flagged_notes = [_describe_flagged_row(f) for f in quality.flagged_rows]
+        flagged_summary = _summarize_flagged_rows(quality.flagged_rows)
         for flagged in quality.flagged_rows:
             logger.warning(
                 "inventory_row_flagged_for_review",
@@ -86,7 +108,7 @@ class StockoutRiskAgent:
             )
 
         if not quality.clean_rows:
-            detail = "inventory data flagged for review: " + "; ".join(flagged_notes) if flagged_notes else "no inventory data provided"
+            detail = flagged_summary or "no inventory data provided"
             return self._error_response(detail, error_class="InventoryDataQualityError")
 
         assessments: list[StockoutRiskAssessment] = []
@@ -134,7 +156,7 @@ class StockoutRiskAgent:
         return AgentResponse(
             agent_name=self.name,
             status="ok",
-            recommendation=self._format_recommendation(assessments, flagged_notes, prediction_errors),
+            recommendation=self._format_recommendation(assessments, flagged_summary, prediction_errors),
             confidence=mean_confidence,
             findings=findings,
         )
@@ -153,15 +175,15 @@ class StockoutRiskAgent:
 
     @staticmethod
     def _format_recommendation(
-        assessments: list[StockoutRiskAssessment], flagged_notes: list[str], prediction_errors: list[str]
+        assessments: list[StockoutRiskAssessment], flagged_summary: str, prediction_errors: list[str]
     ) -> str:
         ordered = sorted(assessments, key=lambda a: _RISK_SEVERITY.get(a.risk_level, _UNKNOWN_SEVERITY))
         points_text = "; ".join(
             f"{a.sku}: {a.risk_level} (confidence {a.confidence:.2f}, {a.detail})" for a in ordered
         )
         summary = f"Stockout risk assessment ({len(assessments)} SKU(s)): {points_text}"
-        if flagged_notes:
-            summary += " | Data quality notes: " + "; ".join(flagged_notes)
+        if flagged_summary:
+            summary += " | Data quality notes: " + flagged_summary
         if prediction_errors:
             summary += " | Flagged for review (prediction error): " + "; ".join(prediction_errors)
         return summary

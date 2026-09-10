@@ -26,6 +26,7 @@ to someone using both rather than two apps that happen to share a name.
 from __future__ import annotations
 
 import html as html_lib
+import re
 
 from dashboard.logging_setup import get_logger
 from dashboard.metrics import DashboardMetric, DashboardSnapshot
@@ -56,6 +57,36 @@ _PLAIN_TAKEAWAY = {
 }
 _PLAIN_TAKEAWAY_OK_DEFAULT = "No risk flagged."
 _PLAIN_TAKEAWAY_ERROR = "This couldn't be checked - see details below."
+
+# An agent's `headline` is one line per finding/row concatenated together
+# (see this module's own docstring on why that text is carried through
+# unchanged rather than reworded) - on real data that can mean the exact
+# same templated sentence repeated hundreds of times, e.g. one line per
+# inventory row missing the same field. That isn't "detailed," it's
+# unreadable: a 28,000-character wall of identical text behind "Show
+# details" fails the same reader this collapsible section exists to
+# serve. This condenses the *display* only - metric.headline itself, and
+# everything logged/audited from it, is untouched.
+_HEADLINE_LIST_SPLIT_RE = re.compile(r"; | \| ")
+_HEADLINE_MAX_CHARS = 400
+_HEADLINE_MAX_ITEMS = 5
+
+
+def _condense_headline(text: str) -> str:
+    if len(text) <= _HEADLINE_MAX_CHARS:
+        return text
+
+    segments = _HEADLINE_LIST_SPLIT_RE.split(text)
+    if len(segments) <= 1:
+        return text[:_HEADLINE_MAX_CHARS].rstrip() + f"... ({len(text):,} characters total)"
+
+    unique_segments = list(dict.fromkeys(segments))  # de-dupe exact repeats, keep first-seen order
+    shown = unique_segments[:_HEADLINE_MAX_ITEMS]
+    hidden = len(segments) - len(shown)
+    condensed = "; ".join(shown)
+    if hidden > 0:
+        condensed += f" (+{hidden} more, {len(unique_segments)} unique of {len(segments)} total)"
+    return condensed
 
 
 def _esc(value: object) -> str:
@@ -115,7 +146,7 @@ def _render_tile(metric: DashboardMetric) -> str:
   <div class="tile-plain">{_esc(_plain_takeaway(metric))}</div>
   <details class="tile-detail">
     <summary>Show details</summary>
-    <div class="tile-headline">{_esc(metric.headline)}</div>
+    <div class="tile-headline">{_esc(_condense_headline(metric.headline))}</div>
     {confidence_html}
     {findings_html}
     <div class="tile-source">Checked by: {_esc(metric.source_agent)}</div>

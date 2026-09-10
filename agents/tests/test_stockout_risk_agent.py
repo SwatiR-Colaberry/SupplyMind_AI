@@ -248,6 +248,23 @@ def test_run_findings_expose_one_per_assessed_sku_matching_the_recommendation():
     assert by_subject["SKU-CRITICAL"].detail  # same detail text the recommendation already surfaces
 
 
+def test_run_error_response_summarizes_many_identically_flagged_rows_by_reason():
+    # Regression: 500 rows all missing the same fields previously joined every
+    # row's near-duplicate note verbatim into one error string (tens of KB of
+    # repeated text). It must now collapse to one summary line per distinct
+    # reason, with a capped set of example SKUs, not one line per row.
+    agent = StockoutRiskAgent()
+    rows = [_row(sku=f"SKU-{i}", safety_stock=None, daily_demand_rate=None) for i in range(500)]
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert response.status == "error"
+    assert "500 inventory row(s) flagged for review" in response.error
+    assert "missing field(s): safety_stock, daily_demand_rate" in response.error
+    assert "+495 more" in response.error
+    assert len(response.error) < 500
+
+
 def test_run_findings_exclude_skus_flagged_for_review_or_prediction_error(monkeypatch):
     def _flaky_assess(position):
         if position.sku == "SKU-BAD":
