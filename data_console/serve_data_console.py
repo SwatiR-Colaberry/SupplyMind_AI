@@ -264,9 +264,14 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   }
   .mapping-form-row label.unavailable-check input[type="checkbox"] { flex: none; margin: 0; }
   .mapping-compute-row {
-    margin-left: 150px; margin-top: -3px; padding: 8px 10px; background: var(--neutral-tint); border-radius: 7px;
+    flex-direction: column; align-items: stretch; gap: 3px; margin: -2px 0 7px; padding: 8px 10px;
+    background: var(--neutral-tint); border-radius: 7px;
   }
-  .mapping-compute-row > label, .mapping-compute-row > label:first-child { width: auto; flex-shrink: 0; color: var(--ink-faint); font-size: 11.5px; }
+  .mapping-compute-row > label, .mapping-compute-row > label:first-child {
+    width: auto; flex-shrink: 0; color: var(--ink-faint); font-size: 11.5px; margin-top: 4px;
+  }
+  .mapping-compute-row > label:first-child { margin-top: 0; }
+  .mapping-compute-row select { width: 100%; }
   .table-scroll { overflow-x: auto; max-width: 100%; }
   .sql-input {
     width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px;

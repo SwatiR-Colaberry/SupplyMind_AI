@@ -22,7 +22,11 @@ from data_integration.logging_setup import get_logger
 
 logger = get_logger()
 
-SourceType = Literal["postgresql", "google_sheets", "public_api"]
+# "csv_upload" covers a dataset sourced from data_console's own saved
+# mapping when that mapping points at an uploaded file rather than a live
+# Postgres table/query or a Google Sheet - see dashboard/run_sample_dashboard.py's
+# _dataset_result_from_data_console().
+SourceType = Literal["postgresql", "google_sheets", "public_api", "csv_upload"]
 
 
 @dataclass(frozen=True)

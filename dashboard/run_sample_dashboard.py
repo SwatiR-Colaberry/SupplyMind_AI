@@ -14,21 +14,25 @@ it to a self-contained HTML "control tower" page.
 
 Three scenarios are printed and each renders its own HTML file:
 
-1. "real_data" - whatever this environment's real Postgres actually
-   returns via STORY-011's audited run_integration_with_audit(). With no
-   credentials configured, every stage-1 dataset pull fails and the
-   dashboard comes out "degraded" (see the "partial_failure" scenario
-   below for why AC2 no longer depends on this happening to be true).
-   Against a real, populated database (e.g. scripts/local_test_db.py's
-   seeded local Postgres), every stage-1 agent succeeds and the
-   dashboard comes out "ok" with real findings (critical stockout risk,
-   a demand spike, a late delivery - whatever the seed data or live
-   source actually contains). Both outcomes are legitimate and this
-   scenario reports honestly whichever one the environment produces -
-   its own success bar is just "the pipeline ran end-to-end and
-   produced tiles," never a specific overall_status, since asserting a
-   specific status here would be asserting a fact about the environment
-   this script does not control.
+1. "real_data" - for each of the 3 datasets, prefers whatever data_console
+   (the local mapping tool at data_console/serve_data_console.py) has
+   saved a mapping for - a live Postgres table/query, an uploaded CSV, or
+   a Google Sheet, however that tenant actually connected it - and falls
+   back to this module's own hardcoded DATASETS pull via STORY-011's
+   audited run_integration_with_audit() only for a dataset data_console
+   has no mapping for at all. See _dataset_result_from_data_console()
+   below. With nothing mapped and no credentials configured, every
+   stage-1 dataset pull fails and the dashboard comes out "degraded" (see
+   the "partial_failure" scenario below for why AC2 no longer depends on
+   this happening to be true). Against a real, populated source, every
+   stage-1 agent succeeds and the dashboard comes out "ok" with real
+   findings (critical stockout risk, a demand spike, a late delivery -
+   whatever the source actually contains). All outcomes are legitimate
+   and this scenario reports honestly whichever one the environment
+   produces - its own success bar is just "the pipeline ran end-to-end
+   and produced tiles," never a specific overall_status, since asserting
+   a specific status here would be asserting a fact about the
+   environment this script does not control.
 2. "partial_failure" - a synthetic, environment-independent scenario:
    inventory data only, no demand history or delivery records. This
    deterministically leaves DemandForecastingAgent/
@@ -89,13 +93,20 @@ from dashboard.audit_trail import DashboardAuditStore
 from dashboard.data_freshness import build_data_freshness
 from dashboard.evaluator import DashboardBuildRun, DashboardEvaluator
 from dashboard.render import render_dashboard_html
+from data_console.file_store import UnknownUploadError
+from data_console.mapping_service import preview_mapping
+from data_console.mapping_store import MappingStore
+from data_console.sheet_fetcher import InvalidSheetUrlError, SheetFetchError
 from data_integration.audit_trail import AuditStore
+from data_integration.config import MissingConfigError
+from data_integration.connection_profile import SchemaMappingError
 from data_integration.orchestrator import (
     DatasetResult,
     PostgresDataset,
     available_for_analysis,
     run_integration_with_audit,
 )
+from data_integration.postgres_connector import PostgresIntegrationError
 
 DATASETS = [
     PostgresDataset(name="customer_orders", query="SELECT * FROM customer_orders LIMIT 500"),
@@ -221,8 +232,55 @@ def _summarize(scenario: str, run: DashboardBuildRun, html_path: Path | None) ->
     return summary
 
 
+# data_console/mapping_store.DatasetMapping.source_kind -> the DatasetResult
+# source_type label this repo already uses for the same kind of pull
+# elsewhere (file_mapping_service.py's own audit records use "csv_upload";
+# a table/query mapping is a live Postgres pull either way).
+_SOURCE_TYPE_BY_MAPPING_KIND = {"table": "postgresql", "query": "postgresql", "file": "csv_upload", "sheet": "google_sheets"}
+
+
+def _dataset_result_from_data_console(dataset_kind: str) -> DatasetResult | None:
+    """Sources one dataset from data_console's own saved mapping - a live
+    table/query, an uploaded CSV, or a Google Sheet, however that tenant
+    actually connected it - via the same preview_mapping() the console's own
+    "Preview" button calls (capped at PREVIEW_ROW_LIMIT rows, the same cap
+    this module's own hardcoded DATASETS queries already use).
+
+    Returns None when data_console has no mapping at all for this dataset,
+    so the caller falls back to the hardcoded DATASETS pull below - a
+    dataset never onboarded through data_console keeps working exactly as
+    before. A mapping explicitly marked "unavailable" is reported as a
+    failure rather than None: falling back to the hardcoded query would
+    contradict what the tenant already told data_console.
+    """
+    mapping = MappingStore().get(dataset_kind)
+    if mapping is None:
+        return None
+    source_type = _SOURCE_TYPE_BY_MAPPING_KIND.get(mapping.source_kind, "postgresql")
+    if mapping.status == "unavailable":
+        return DatasetResult(name=dataset_kind, source_type=source_type, outcome="failure", error="marked unavailable in data_console")
+    try:
+        result = preview_mapping(dataset_kind)
+    except (
+        SchemaMappingError,
+        MissingConfigError,
+        PostgresIntegrationError,
+        UnknownUploadError,
+        InvalidSheetUrlError,
+        SheetFetchError,
+    ) as exc:
+        return DatasetResult(name=dataset_kind, source_type=source_type, outcome="failure", error=str(exc))
+    return DatasetResult(name=dataset_kind, source_type=source_type, outcome="success", rows=result.rows)
+
+
 def _real_data_scenario() -> dict:
-    dataset_results = run_integration_with_audit(DATASETS, _audit_store())
+    mapped_results = {d.name: _dataset_result_from_data_console(d.name) for d in DATASETS}
+    unmapped_datasets = [d for d in DATASETS if mapped_results[d.name] is None]
+    legacy_results = {r.name: r for r in run_integration_with_audit(unmapped_datasets, _audit_store())}
+    dataset_results = [
+        mapped_results[d.name] if mapped_results[d.name] is not None else legacy_results[d.name] for d in DATASETS
+    ]
+
     analysis_ready = available_for_analysis(dataset_results)
     context = {
         "demand_history": analysis_ready.get("customer_orders", []),
