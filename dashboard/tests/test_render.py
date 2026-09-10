@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from agents.contracts import AgentFinding
 from dashboard.data_freshness import DataFreshnessEntry
 from dashboard.metrics import DashboardMetric, DashboardSnapshot
 from dashboard.render import render_dashboard_html
@@ -215,6 +216,66 @@ def test_show_details_renders_the_condensed_headline_not_the_raw_one():
 
     assert huge_headline not in html
     assert "more, 1000 unique of 1000 total)" in html
+
+
+def test_renders_no_charts_sections_when_nothing_qualifies():
+    html = render_dashboard_html(_snapshot())
+
+    assert '<div class="charts-section">' not in html
+    assert '<div class="explore-section">' not in html
+
+
+def test_renders_quick_review_and_explore_sections_when_findings_exist():
+    metric = DashboardMetric(
+        metric_id="stockout_risk_agent",
+        label="Stockout Risk",
+        status="ok",
+        headline="fine",
+        source_agent="stockout_risk_agent",
+        confidence=0.8,
+        severity="critical",
+        critical_findings=1,
+        findings=[AgentFinding(subject="SKU-1", subject_kind="sku", severity="critical", detail="stockout imminent")],
+    )
+
+    html = render_dashboard_html(_snapshot(metrics=[metric]))
+
+    assert '<div class="charts-section">' in html
+    assert "Findings by area" in html
+    assert "Confidence by area" in html
+    assert '<div class="explore-section">' in html
+    assert "Which SKUs need attention in Stockout Risk?" in html
+    assert "<svg" in html
+
+
+def test_explore_question_labels_are_html_escaped_not_injected():
+    metric = DashboardMetric(
+        metric_id="x",
+        label="X",
+        status="ok",
+        headline="fine",
+        source_agent="x",
+        findings=[AgentFinding(subject="<script>alert(1)</script>", subject_kind="sku", severity="low", detail="d")],
+    )
+
+    html = render_dashboard_html(_snapshot(metrics=[metric]))
+
+    assert "<script>alert" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_a_charts_render_failure_falls_back_without_taking_down_the_page():
+    metric = DashboardMetric(
+        metric_id="stockout_risk_agent", label="Stockout Risk", status="ok", headline="fine",
+        source_agent="stockout_risk_agent", critical_findings=1,
+    )
+
+    with patch("dashboard.render.build_chart_specs", side_effect=ValueError("simulated charts bug")):
+        html = render_dashboard_html(_snapshot(metrics=[metric]))
+
+    assert "Stockout Risk" in html
+    assert '<div class="charts-section">' not in html
+    assert '<div class="explore-section">' not in html
 
 
 def test_a_page_assembly_failure_still_returns_a_valid_fallback_page():

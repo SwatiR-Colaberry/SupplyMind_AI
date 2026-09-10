@@ -129,3 +129,23 @@ def test_build_dashboard_generates_a_dashboard_id_when_none_is_supplied():
     snapshot = build_dashboard([_ok_result("stockout_risk_agent")])
 
     assert snapshot.dashboard_id  # non-empty, uuid4 by default
+
+
+def test_metric_carries_the_full_findings_list_not_just_the_severity_counts():
+    findings = [
+        AgentFinding(subject="SKU-1", subject_kind="sku", severity="critical", detail="stockout imminent"),
+        AgentFinding(subject="SKU-2", subject_kind="sku", severity="medium", detail="watch closely"),
+    ]
+
+    snapshot = build_dashboard([_ok_result("stockout_risk_agent", findings=findings)])
+
+    assert snapshot.metrics[0].findings == findings
+    # critical_findings/high_findings only ever count critical+high - the
+    # medium finding above must still survive on the tile itself.
+    assert len(snapshot.metrics[0].findings) == 2
+
+
+def test_error_tile_has_no_findings():
+    snapshot = build_dashboard([_agent_error_result("stockout_risk_agent")])
+
+    assert snapshot.metrics[0].findings == []

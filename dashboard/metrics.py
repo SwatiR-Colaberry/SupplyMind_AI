@@ -63,6 +63,11 @@ class DashboardMetric:
     severity: FindingSeverity | None = None  # highest-severity finding this agent reported, if any
     critical_findings: int = 0
     high_findings: int = 0
+    # Carried through unfiltered so a consumer (dashboard/charts.py's
+    # per-subject breakdowns) can chart individual SKUs/suppliers/periods -
+    # critical_findings/high_findings above are only ever an aggregate count,
+    # which is exactly the granularity this dataclass previously threw away.
+    findings: list[AgentFinding] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -143,6 +148,7 @@ def _metric_from_result(result: CoordinationResult) -> DashboardMetric:
         severity=severity,
         critical_findings=critical,
         high_findings=high,
+        findings=response.findings,
     )
 
 

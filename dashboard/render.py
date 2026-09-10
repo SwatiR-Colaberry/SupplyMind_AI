@@ -28,6 +28,7 @@ from __future__ import annotations
 import html as html_lib
 import re
 
+from dashboard.charts import ChartSpec, build_chart_specs, render_bar_chart
 from dashboard.logging_setup import get_logger
 from dashboard.metrics import DashboardMetric, DashboardSnapshot
 
@@ -182,6 +183,61 @@ def _render_nav(nav_links: list[tuple[str, str | None]] | None) -> str:
     return f'<div class="nav-bar">{items}</div>'
 
 
+def _render_chart_card(spec: ChartSpec) -> str:
+    footnote = f'<div class="chart-footnote">+{spec.omitted_count} more not shown</div>' if spec.omitted_count else ""
+    return (
+        f'<div class="chart-card"><h3 class="chart-title">{_esc(spec.title)}</h3>'
+        f"{render_bar_chart(spec)}{footnote}</div>"
+    )
+
+
+def _render_quick_review_section(charts: list[ChartSpec]) -> str:
+    """Always-visible charts a reader can scan in a few seconds - see
+    dashboard/charts.py's own module docstring for what qualifies."""
+    if not charts:
+        return ""
+    cards = "".join(_render_chart_card(c) for c in charts)
+    return f'<div class="charts-section"><h2>Quick review</h2><div class="charts-grid">{cards}</div></div>'
+
+
+def _render_explore_section(charts: list[ChartSpec]) -> str:
+    """A question-picker over the per-subject charts (SKU/supplier/PO/period
+    breakdowns) the fixed tiles/stat-row never show below an aggregate
+    count. Pure CSS tab switching (hidden radio inputs + the `:checked`
+    general-sibling combinator) - no JavaScript, matching this page's
+    existing zero-JS design, and every panel is real markup already in the
+    page (nothing rendered by client-side script), so the page still works
+    exactly the same whether opened from a server or straight off disk.
+    """
+    if not charts:
+        return ""
+    radios: list[str] = []
+    tabs: list[str] = []
+    panels: list[str] = []
+    rules: list[str] = []
+    for i, spec in enumerate(charts):
+        radio_id = f"explore-{i}"
+        panel_id = f"explore-panel-{i}"
+        checked = " checked" if i == 0 else ""
+        radios.append(f'<input type="radio" name="explore-tab" id="{radio_id}" class="explore-radio"{checked}>')
+        tabs.append(f'<label for="{radio_id}" class="explore-tab-label">{_esc(spec.question)}</label>')
+        panels.append(f'<div class="explore-panel" id="{panel_id}">{_render_chart_card(spec)}</div>')
+        rules.append(
+            f"#{radio_id}:checked ~ #{panel_id} {{ display: block; }}"
+            f'#{radio_id}:checked ~ .explore-tabs label[for="{radio_id}"] '
+            "{ background: var(--brand); color: white; }"
+        )
+    return (
+        '<div class="explore-section"><h2>Explore the data</h2>'
+        '<div class="sources-intro">Pick a question to see the chart behind it - covers individual SKUs, '
+        "suppliers, purchase orders and time periods the cards above only summarize as a count.</div>"
+        f'<div class="explore-control">{"".join(radios)}'
+        f'<div class="explore-tabs">{"".join(tabs)}</div>'
+        f'{"".join(panels)}</div>'
+        f"<style>{''.join(rules)}</style></div>"
+    )
+
+
 def _fallback_tile(metric: DashboardMetric, exc: Exception) -> str:
     metric_id = getattr(metric, "metric_id", "unknown")
     _log_render_failure("dashboard_tile_render_failed", exc, {"metric_id": metric_id})
@@ -246,6 +302,18 @@ def render_dashboard_html(
         notification_html = ""
         if snapshot.notification:
             notification_html = f'<div class="notification">{_esc(snapshot.notification)}</div>'
+
+        # Charts degrade the same way a single broken tile does (see module
+        # docstring) - a bug here must not take down the rest of an
+        # otherwise-fine page.
+        try:
+            quick_review_charts, explore_charts = build_chart_specs(snapshot)
+            quick_review_html = _render_quick_review_section(quick_review_charts)
+            explore_html = _render_explore_section(explore_charts)
+        except Exception as exc:  # noqa: BLE001 - deliberate: see module docstring
+            _log_render_failure("dashboard_charts_render_failed", exc, {})
+            quick_review_html = ""
+            explore_html = ""
 
         overall_color = _status_color(snapshot.overall_status == "ok")
         subtitle_html = f'<div class="kicker">{_esc(subtitle)}</div>' if subtitle else ""
@@ -344,6 +412,27 @@ def render_dashboard_html(
   }}
   .source-name {{ font-weight: 650; color: var(--ink); }}
   .source-detail {{ color: var(--ink-faint); }}
+  .charts-section {{ margin-bottom: 22px; }}
+  .charts-section h2, .explore-section h2 {{ font-size: 15px; font-weight: 700; margin: 0 0 10px; color: var(--ink); }}
+  .charts-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }}
+  .chart-card {{
+    background: var(--surface); border-radius: 12px; padding: 16px 18px 12px; box-shadow: var(--shadow);
+  }}
+  .chart-title {{ font-size: 13px; font-weight: 650; color: var(--ink); margin: 0 0 10px; }}
+  .chart-svg {{ width: 100%; height: auto; display: block; }}
+  .chart-label {{ font-size: 10.5px; fill: var(--ink-soft); }}
+  .chart-value {{ font-size: 10.5px; fill: var(--ink-faint); }}
+  .chart-footnote {{ font-size: 11px; color: var(--ink-faint); margin-top: 8px; }}
+  .chart-empty {{ font-size: 12.5px; color: var(--ink-faint); }}
+  .explore-section {{ margin-top: 28px; }}
+  .explore-control > input.explore-radio {{ position: absolute; opacity: 0; pointer-events: none; }}
+  .explore-tabs {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }}
+  .explore-tab-label {{
+    cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 7px 14px; border-radius: 8px;
+    background: var(--neutral-tint); color: var(--ink-soft); border: 1px solid var(--border);
+  }}
+  .explore-tab-label:hover {{ background: var(--brand-tint); color: var(--brand-dark); }}
+  .explore-panel {{ display: none; }}
 </style>
 </head>
 <body>
@@ -385,9 +474,11 @@ def render_dashboard_html(
       <div class="stat-label">Areas monitored</div>
     </div>
   </div>
+  {quick_review_html}
   <div class="grid">
     {''.join(tiles_html)}
   </div>
+  {explore_html}
   {sources_section}
 </div>
 </body>
