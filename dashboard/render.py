@@ -15,6 +15,12 @@ taking down the rest of the page; if page assembly itself fails
 unexpectedly, the whole function still returns a minimal, valid fallback
 error page rather than raising - a caller building a dashboard must
 never crash because rendering broke.
+
+Visual language matches data_console/serve_data_console.py's token
+palette (same --ink/--surface/--brand/... custom properties, same
+system-font stack) - this and data_console are both part of the one
+SupplyMind AI tool suite, and a shared look is what makes that legible
+to someone using both rather than two apps that happen to share a name.
 """
 
 from __future__ import annotations
@@ -26,9 +32,14 @@ from dashboard.metrics import DashboardMetric, DashboardSnapshot
 
 logger = get_logger()
 
-_STATUS_COLORS = {"ok": "#2e7d32", "error": "#c62828"}
-_SEVERITY_COLORS = {"critical": "#b71c1c", "high": "#e65100", "medium": "#f9a825", "low": "#757575"}
-_DEFAULT_COLOR = "#757575"
+# Muted, deliberately non-neon severity ramp - critical/danger share a
+# color (a critical finding *is* the dangerous case), "high" is new (this
+# module's own tone, not reused from data_console, since data_console never
+# needed a 4-step severity scale), "medium"/"low" reuse the base warning/
+# neutral tones data_console already established.
+_STATUS_COLORS = {"ok": "#0f7b52", "error": "#9a2b1e"}
+_SEVERITY_COLORS = {"critical": "#9a2b1e", "high": "#b5540f", "medium": "#a85c00", "low": "#5f6673"}
+_DEFAULT_COLOR = "#5f6673"
 
 # Every agent's `headline` is written for someone who already knows this
 # codebase (z-scores, confidence floats, agent jargon) - see metrics.py's
@@ -123,6 +134,23 @@ def _render_freshness_row(entry) -> str:
     )
 
 
+def _render_nav(nav_links: list[tuple[str, str | None]] | None) -> str:
+    """A tab bar linking sibling scenario pages together - href=None marks the
+    current page (rendered as an inactive, already-here pill instead of a
+    link), so opening any one of a set of pages built with the same
+    nav_links reads as one application with several views, not several
+    unrelated files that happen to sit in the same folder."""
+    if not nav_links:
+        return ""
+    items = "".join(
+        f'<span class="nav-item nav-current">{_esc(label)}</span>'
+        if href is None
+        else f'<a class="nav-item" href="{_esc(href)}">{_esc(label)}</a>'
+        for label, href in nav_links
+    )
+    return f'<div class="nav-bar">{items}</div>'
+
+
 def _fallback_tile(metric: DashboardMetric, exc: Exception) -> str:
     metric_id = getattr(metric, "metric_id", "unknown")
     _log_render_failure("dashboard_tile_render_failed", exc, {"metric_id": metric_id})
@@ -139,8 +167,21 @@ def _fallback_page(snapshot: DashboardSnapshot, exc: Exception) -> str:
     )
 
 
-def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
+def render_dashboard_html(
+    snapshot: DashboardSnapshot,
+    nav_links: list[tuple[str, str | None]] | None = None,
+    subtitle: str | None = None,
+) -> str:
     """Render one DashboardSnapshot to a self-contained HTML page.
+
+    `nav_links` (optional): (label, href) pairs for the shared tab bar
+    linking this page to sibling scenario pages - href=None marks the
+    current page. Omitted entirely (the default) for a caller with no
+    sibling pages, in which case the page renders exactly as it always
+    has, just below this pass's own CSS refresh.
+
+    `subtitle` (optional): one short line under the page title (e.g. which
+    scenario this is) - purely cosmetic, never affects the data below it.
 
     Never raises - a rendering failure (a single tile, or page assembly
     itself) is logged and degrades to a fallback card/page instead of
@@ -176,51 +217,115 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
             notification_html = f'<div class="notification">{_esc(snapshot.notification)}</div>'
 
         overall_color = _status_color(snapshot.overall_status == "ok")
+        subtitle_html = f'<div class="kicker">{_esc(subtitle)}</div>' if subtitle else ""
+        nav_html = _render_nav(nav_links)
 
         return f"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>Executive Control Tower</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d4ed8'/%3E%3Cpath d='M8 22V14M15 22V9M22 22V17' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
-  body {{ font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #f5f6f8; color: #1a1a1a; margin: 0; padding: 24px; }}
-  h1 {{ font-size: 20px; margin: 0 0 4px; }}
-  .meta {{ color: #666; font-size: 13px; margin-bottom: 16px; }}
-  .status {{ display: inline-block; padding: 2px 10px; border-radius: 10px; color: white; font-size: 12px; background: {overall_color}; }}
-  .notification {{ background: #fff3cd; border: 1px solid #ffe69c; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }}
-  .rollup {{ font-size: 13px; color: #444; margin-bottom: 16px; }}
-  .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }}
-  .tile {{ background: white; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }}
-  .tile-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
-  .tile-label {{ font-weight: 600; font-size: 13px; }}
-  .badge {{ color: white; font-size: 11px; padding: 1px 8px; border-radius: 8px; text-transform: uppercase; }}
-  .tile-headline {{ font-size: 13px; color: #333; margin-bottom: 6px; }}
-  .tile-plain {{ font-size: 13px; color: #1a1a1a; margin-bottom: 8px; }}
-  .tile-detail {{ margin-top: 4px; }}
-  .tile-detail summary {{ cursor: pointer; font-size: 11px; color: #1565c0; }}
-  .tile-detail[open] summary {{ margin-bottom: 6px; }}
-  .confidence, .findings, .tile-source {{ font-size: 11px; color: #777; }}
-  .tile-error {{ color: #c62828; font-size: 12px; }}
-  .intro {{ background: white; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: #333; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }}
-  .legend {{ margin-top: 8px; font-size: 12px; color: #555; display: flex; flex-wrap: wrap; gap: 14px; }}
+  :root {{
+    --ink: #131826; --ink-soft: #4a5468; --ink-faint: #8891a1;
+    --surface: #ffffff; --canvas: #f2f4f8; --border: #e1e5ec; --border-soft: #edeff3;
+    --brand: #1d4ed8; --brand-dark: #1638a6; --brand-tint: #eaf0fd;
+    --success: #0f7b52; --success-tint: #e6f4ec;
+    --warning: #a85c00; --warning-tint: #fbf0dd;
+    --neutral: #5f6673; --neutral-tint: #eef0f3;
+    --danger: #9a2b1e; --danger-tint: #fdecea;
+    --shadow: 0 1px 2px rgba(19, 24, 38, 0.05), 0 1px 8px rgba(19, 24, 38, 0.04);
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--canvas); color: var(--ink); margin: 0; -webkit-font-smoothing: antialiased;
+  }}
+  .page {{ max-width: 1180px; margin: 0 auto; padding: 28px 32px 56px; }}
+  .nav-bar {{
+    display: flex; gap: 6px; margin-bottom: 20px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 5px; box-shadow: var(--shadow); width: fit-content;
+  }}
+  .nav-item {{
+    font-size: 12.5px; font-weight: 600; padding: 7px 14px; border-radius: 7px; text-decoration: none;
+    color: var(--ink-soft);
+  }}
+  a.nav-item:hover {{ background: var(--brand-tint); color: var(--brand-dark); }}
+  .nav-current {{ background: var(--brand); color: white; }}
+  .kicker {{
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--brand); margin-bottom: 4px;
+  }}
+  h1 {{ font-size: 26px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }}
+  .meta {{ color: var(--ink-faint); font-size: 13px; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }}
+  .status {{
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 11px; border-radius: 100px; color: white;
+    font-size: 11px; font-weight: 650; letter-spacing: 0.03em; text-transform: uppercase; background: {overall_color};
+  }}
+  .notification {{
+    background: var(--warning-tint); color: var(--warning); border: 1px solid #f0dcb3; padding: 12px 16px;
+    border-radius: 10px; margin-bottom: 20px; font-size: 13.5px; font-weight: 550;
+  }}
+  .stat-row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 22px; }}
+  .stat-card {{
+    background: var(--surface); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow);
+    border-top: 3px solid var(--border);
+  }}
+  .stat-card.is-critical {{ border-top-color: var(--danger); }}
+  .stat-card.is-high {{ border-top-color: {_SEVERITY_COLORS['high']}; }}
+  .stat-card.is-ok {{ border-top-color: var(--success); }}
+  .stat-value {{ font-size: 28px; font-weight: 750; letter-spacing: -0.02em; line-height: 1.1; }}
+  .stat-label {{ font-size: 11.5px; color: var(--ink-faint); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }}
+  .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }}
+  .tile {{
+    background: var(--surface); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }}
+  .tile:hover {{ transform: translateY(-2px); box-shadow: 0 4px 14px rgba(19, 24, 38, 0.09); }}
+  .tile-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }}
+  .tile-label {{ font-weight: 650; font-size: 14px; color: var(--ink); }}
+  .badge {{
+    color: white; font-size: 10.5px; font-weight: 650; padding: 2px 9px; border-radius: 100px;
+    text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
+  }}
+  .tile-headline {{ font-size: 12.5px; color: var(--ink-soft); margin-bottom: 6px; line-height: 1.5; }}
+  .tile-plain {{ font-size: 13.5px; color: var(--ink); margin-bottom: 10px; font-weight: 550; }}
+  .tile-detail {{ margin-top: 4px; border-top: 1px solid var(--border-soft); padding-top: 8px; }}
+  .tile-detail summary {{ cursor: pointer; font-size: 11.5px; color: var(--brand); font-weight: 600; }}
+  .tile-detail summary:hover {{ color: var(--brand-dark); }}
+  .tile-detail[open] summary {{ margin-bottom: 8px; }}
+  .confidence, .findings, .tile-source {{ font-size: 11.5px; color: var(--ink-faint); margin-top: 3px; }}
+  .tile-error {{ color: var(--danger); font-size: 12.5px; }}
+  .intro {{
+    background: var(--surface); border-radius: 12px; padding: 16px 18px; margin-bottom: 20px; font-size: 13.5px;
+    color: var(--ink-soft); box-shadow: var(--shadow); border-left: 3px solid var(--brand); line-height: 1.6;
+  }}
+  .legend {{ margin-top: 12px; font-size: 11.5px; color: var(--ink-faint); display: flex; flex-wrap: wrap; gap: 16px; }}
   .legend-item {{ display: flex; align-items: center; gap: 6px; }}
-  .legend-dot {{ width: 10px; height: 10px; border-radius: 50%; display: inline-block; }}
-  .sources-section {{ margin-top: 24px; }}
-  .sources-section h2 {{ font-size: 14px; margin: 0 0 4px; }}
-  .sources-intro {{ font-size: 12px; color: #666; margin-bottom: 8px; }}
-  .source-row {{ background: white; border-radius: 4px; padding: 6px 10px; margin-bottom: 4px; font-size: 12px; display: flex; justify-content: space-between; }}
-  .source-name {{ font-weight: 600; }}
-  .source-detail {{ color: #777; }}
+  .legend-dot {{ width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }}
+  .sources-section {{ margin-top: 28px; }}
+  .sources-section h2 {{ font-size: 15px; font-weight: 700; margin: 0 0 4px; color: var(--ink); }}
+  .sources-intro {{ font-size: 12px; color: var(--ink-faint); margin-bottom: 10px; }}
+  .source-row {{
+    background: var(--surface); border-radius: 8px; padding: 9px 14px; margin-bottom: 6px; font-size: 12.5px;
+    display: flex; justify-content: space-between; box-shadow: var(--shadow);
+  }}
+  .source-name {{ font-weight: 650; color: var(--ink); }}
+  .source-detail {{ color: var(--ink-faint); }}
 </style>
 </head>
 <body>
+<div class="page">
+  {nav_html}
+  {subtitle_html}
   <h1>Executive Control Tower</h1>
-  <div class="meta">dashboard {_esc(snapshot.dashboard_id)} - generated {_esc(snapshot.generated_at)} - <span class="status">{_esc(snapshot.overall_status)}</span></div>
+  <div class="meta">dashboard {_esc(snapshot.dashboard_id)} &middot; generated {_esc(snapshot.generated_at)} <span class="status">{_esc(snapshot.overall_status)}</span></div>
   <div class="intro">
-    This page is a plain-English snapshot of your supply chain, rebuilt fresh each time it runs - there is
-    nothing to log into and nothing to configure here. Each card below covers one area (demand, stockout risk,
-    suppliers, shipments, data quality) with a one-line takeaway; click "Show details" on any card for the full
-    technical explanation behind it.
+    A plain-English snapshot of your supply chain, rebuilt fresh each time it runs - nothing to log into, nothing
+    to configure here. Each card below covers one area (demand, stockout risk, suppliers, shipments, data
+    quality) with a one-line takeaway; click "Show details" on any card for the full technical explanation
+    behind it.
     <div class="legend">
       <span class="legend-item"><span class="legend-dot" style="background:{_STATUS_COLORS['ok']}"></span>Fine / working normally</span>
       <span class="legend-item"><span class="legend-dot" style="background:{_STATUS_COLORS['error']}"></span>Couldn't be checked</span>
@@ -231,11 +336,29 @@ def render_dashboard_html(snapshot: DashboardSnapshot) -> str:
     </div>
   </div>
   {notification_html}
-  <div class="rollup">{snapshot.total_critical_findings} critical / {snapshot.total_high_findings} high finding(s) across the fleet</div>
+  <div class="stat-row">
+    <div class="stat-card {'is-ok' if snapshot.overall_status == 'ok' else 'is-high'}">
+      <div class="stat-value">{_esc(snapshot.overall_status).upper()}</div>
+      <div class="stat-label">Overall status</div>
+    </div>
+    <div class="stat-card {'is-critical' if snapshot.total_critical_findings else ''}">
+      <div class="stat-value">{snapshot.total_critical_findings}</div>
+      <div class="stat-label">Critical findings</div>
+    </div>
+    <div class="stat-card {'is-high' if snapshot.total_high_findings else ''}">
+      <div class="stat-value">{snapshot.total_high_findings}</div>
+      <div class="stat-label">High findings</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{len(snapshot.metrics)}</div>
+      <div class="stat-label">Areas monitored</div>
+    </div>
+  </div>
   <div class="grid">
     {''.join(tiles_html)}
   </div>
   {sources_section}
+</div>
 </body>
 </html>"""
     except Exception as exc:  # noqa: BLE001 - deliberate: see module docstring

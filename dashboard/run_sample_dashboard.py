@@ -190,6 +190,28 @@ def _stage2_results(stage1_results: list[CoordinationResult]) -> list[Coordinati
     return run.results
 
 
+# Plain-English label per scenario, and the fixed page order every
+# rendered page's nav bar shows - so opening any one of the 3 files feels
+# like navigating one application with three views, not three unrelated
+# files that happen to live in the same folder. "real_data" is the only
+# one an actual user's own connected data ever appears in; the other two
+# are this story's own fixed acceptance-criteria demonstrations, labeled
+# "Demo:" so that distinction is never ambiguous from the tab bar alone.
+_SCENARIO_LABELS = {
+    "real_data": "Live Data",
+    "partial_failure": "Demo: Partial Data",
+    "synthetic_healthy": "Demo: Healthy Example",
+}
+_SCENARIO_ORDER = ["real_data", "partial_failure", "synthetic_healthy"]
+
+
+def _nav_links(current_scenario: str) -> list[tuple[str, str | None]]:
+    return [
+        (_SCENARIO_LABELS[s], None if s == current_scenario else f"control_tower_{s}.html")
+        for s in _SCENARIO_ORDER
+    ]
+
+
 def _build_dashboard(scenario: str, context: dict, dataset_results: list[DatasetResult]) -> tuple[DashboardBuildRun, Path | None]:
     stage1_results = _stage1_results(context)
     stage2_results = _stage2_results(stage1_results)
@@ -201,7 +223,8 @@ def _build_dashboard(scenario: str, context: dict, dataset_results: list[Dataset
     html_path = None
     if run.snapshot is not None:
         html_path = DEFAULT_HTML_DIR / f"control_tower_{scenario}.html"
-        html_path.write_text(render_dashboard_html(run.snapshot), encoding="utf-8")
+        html = render_dashboard_html(run.snapshot, nav_links=_nav_links(scenario), subtitle=_SCENARIO_LABELS[scenario])
+        html_path.write_text(html, encoding="utf-8")
 
     return run, html_path
 

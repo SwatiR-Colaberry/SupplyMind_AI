@@ -151,6 +151,29 @@ def test_renders_a_data_sources_section_with_success_and_failure_rows():
     assert "delivery_records" in html and "connection refused" in html
 
 
+def test_renders_no_nav_bar_when_nav_links_is_omitted():
+    html = render_dashboard_html(_snapshot())
+
+    assert '<div class="nav-bar">' not in html
+
+
+def test_renders_a_nav_bar_linking_sibling_pages_with_the_current_page_as_a_non_link():
+    html = render_dashboard_html(
+        _snapshot(),
+        nav_links=[("Live Data", None), ("Demo: Partial Data", "control_tower_partial_failure.html")],
+    )
+
+    assert '<span class="nav-item nav-current">Live Data</span>' in html
+    assert '<a class="nav-item" href="control_tower_partial_failure.html">Demo: Partial Data</a>' in html
+
+
+def test_subtitle_appears_when_provided_and_is_escaped():
+    html = render_dashboard_html(_snapshot(), subtitle="<b>Live</b> Data")
+
+    assert "<b>Live</b> Data" not in html
+    assert "&lt;b&gt;Live&lt;/b&gt; Data" in html
+
+
 def test_a_page_assembly_failure_still_returns_a_valid_fallback_page():
     # Break something only the *success* path touches (the overall-status
     # color lookup, after the per-tile loop) so the outer except runs -
