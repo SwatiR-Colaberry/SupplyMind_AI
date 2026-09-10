@@ -20,17 +20,37 @@ class AggregationError(ValueError):
     """Raised when raw rows can't be aggregated into monthly demand points."""
 
 
+# Tried, in order, only after datetime.fromisoformat() (this module's
+# original, still-first-tried form) fails - covers a real-world operational
+# export's shape, e.g. this repo's own DataCo sample dataset's
+# "order date (DateOrders)" column, which reads "1/31/2018 22:56" rather
+# than ISO. Kept local rather than reused from
+# risk_detection.anomaly_detection.parse_delivery_date (which accepts the
+# same two extra shapes): risk_detection.anomaly_detection already imports
+# forecasting.demand_model, so forecasting importing back from
+# risk_detection would be the exact "A imports B imports A" smell this
+# repo's own Modular Composition Rule forbids, not just a style preference.
+_FALLBACK_DATE_FORMATS: tuple[str, ...] = ("%m/%d/%Y %H:%M", "%m/%d/%Y")
+
+
 def _to_period(raw_date: Any, date_field: str) -> str:
     if hasattr(raw_date, "year") and hasattr(raw_date, "month"):
         # Covers both datetime.datetime and datetime.date (what a real
         # PostgreSQL driver hands back for a date/timestamp column).
         return f"{raw_date.year:04d}-{raw_date.month:02d}"
+    text = str(raw_date)
     try:
-        parsed = datetime.fromisoformat(str(raw_date))
-    except ValueError as exc:
-        raise AggregationError(
-            f"could not parse '{date_field}' value {raw_date!r} into a period"
-        ) from exc
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        parsed = None
+        for fmt in _FALLBACK_DATE_FORMATS:
+            try:
+                parsed = datetime.strptime(text, fmt)
+                break
+            except ValueError:
+                continue
+    if parsed is None:
+        raise AggregationError(f"could not parse '{date_field}' value {raw_date!r} into a period")
     return f"{parsed.year:04d}-{parsed.month:02d}"
 
 

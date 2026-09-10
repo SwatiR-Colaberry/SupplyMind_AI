@@ -66,6 +66,24 @@ def test_aggregate_monthly_demand_honors_custom_field_names():
     assert result == [DemandPoint("2025-01", 10.0)]
 
 
+def test_aggregate_monthly_demand_accepts_m_d_yyyy_with_time():
+    # A real-world operational export's shape - this repo's own DataCo
+    # sample dataset's "order date (DateOrders)" column reads this way.
+    rows = [{"order_date": "1/31/2018 22:56", "quantity": 10}]
+
+    result = aggregate_monthly_demand(rows)
+
+    assert result == [DemandPoint("2018-01", 10.0)]
+
+
+def test_aggregate_monthly_demand_accepts_m_d_yyyy_without_time():
+    rows = [{"order_date": "1/31/2018", "quantity": 10}]
+
+    result = aggregate_monthly_demand(rows)
+
+    assert result == [DemandPoint("2018-01", 10.0)]
+
+
 def test_aggregate_monthly_demand_rejects_unparseable_date():
     rows = [{"order_date": "not-a-date", "quantity": 10}]
 
