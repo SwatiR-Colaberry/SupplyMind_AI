@@ -147,10 +147,62 @@ def test_get_root_returns_html_page(server):
     assert "Connect Your Data" in resp.read().decode("utf-8")
 
 
+def test_get_root_page_links_to_the_3_dashboard_scenarios(server):
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert 'href="/dashboard/control_tower_real_data.html"' in body
+    assert 'href="/dashboard/control_tower_partial_failure.html"' in body
+    assert 'href="/dashboard/control_tower_synthetic_healthy.html"' in body
+
+
 def test_get_unknown_path_returns_404(server):
     with pytest.raises(urllib.error.HTTPError) as exc_info:
         urllib.request.urlopen(server + "/nonexistent")
     assert exc_info.value.code == 404
+
+
+def test_get_dashboard_page_serves_the_generated_file_when_present(server, tmp_path):
+    (tmp_path / "control_tower_real_data.html").write_text("<html><body>fake dashboard</body></html>")
+
+    with patch("data_console.serve_data_console._DASHBOARD_HTML_DIR", tmp_path):
+        resp = urllib.request.urlopen(server + "/dashboard/control_tower_real_data.html")
+
+    assert resp.status == 200
+    assert resp.headers["Content-Type"].startswith("text/html")
+    assert "fake dashboard" in resp.read().decode("utf-8")
+
+
+def test_get_bare_dashboard_path_defaults_to_the_real_data_scenario(server, tmp_path):
+    (tmp_path / "control_tower_real_data.html").write_text("<html><body>fake dashboard</body></html>")
+
+    with patch("data_console.serve_data_console._DASHBOARD_HTML_DIR", tmp_path):
+        resp = urllib.request.urlopen(server + "/dashboard/")
+
+    assert "fake dashboard" in resp.read().decode("utf-8")
+
+
+def test_get_dashboard_page_not_yet_generated_returns_a_helpful_404(server, tmp_path):
+    with patch("data_console.serve_data_console._DASHBOARD_HTML_DIR", tmp_path):
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(server + "/dashboard/control_tower_real_data.html")
+
+    assert exc_info.value.code == 404
+    assert "run_sample_dashboard" in exc_info.value.read().decode("utf-8")
+
+
+def test_get_dashboard_page_rejects_a_filename_outside_the_allowlist(server, tmp_path):
+    # Proves the route can never be used to read an arbitrary file - only
+    # the 3 exact filenames run_sample_dashboard.py generates are servable,
+    # checked against an allowlist before the filesystem is ever touched.
+    outside_file = tmp_path.parent / f"{tmp_path.name}-secret.txt"
+    outside_file.write_text("nope")
+    try:
+        with patch("data_console.serve_data_console._DASHBOARD_HTML_DIR", tmp_path):
+            status, data = _get(server, f"/dashboard/../{outside_file.name}")
+        assert status == 404
+    finally:
+        outside_file.unlink()
 
 
 def test_api_tables_reports_not_connected_when_config_is_missing(server):

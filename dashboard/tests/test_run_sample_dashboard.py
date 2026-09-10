@@ -5,7 +5,7 @@ from unittest.mock import patch
 from data_console.file_store import UnknownUploadError
 from data_console.mapping_service import MappingPreviewResult
 from data_console.mapping_store import DatasetMapping
-from dashboard.run_sample_dashboard import _dataset_result_from_data_console
+from dashboard.run_sample_dashboard import _dataset_result_from_data_console, _nav_links
 from data_integration.connection_profile import SchemaMappingError
 
 
@@ -73,3 +73,15 @@ def test_returns_a_failure_result_when_the_uploaded_file_is_gone():
 
     assert result.outcome == "failure"
     assert "no such upload" in result.error
+
+
+def test_nav_links_leads_with_a_data_console_link_then_all_3_scenarios_with_current_as_none():
+    links = _nav_links("partial_failure")
+
+    assert links[0][0] == "Data Console"
+    assert links[0][1].startswith("http://127.0.0.1:")
+    assert links[1:] == [
+        ("Live Data", "control_tower_real_data.html"),
+        ("Demo: Partial Data", None),
+        ("Demo: Healthy Example", "control_tower_synthetic_healthy.html"),
+    ]

@@ -96,6 +96,7 @@ from dashboard.render import render_dashboard_html
 from data_console.file_store import UnknownUploadError
 from data_console.mapping_service import preview_mapping
 from data_console.mapping_store import MappingStore
+from data_console.serve_data_console import DEFAULT_PORT as _DATA_CONSOLE_DEFAULT_PORT
 from data_console.sheet_fetcher import InvalidSheetUrlError, SheetFetchError
 from data_integration.audit_trail import AuditStore
 from data_integration.config import MissingConfigError
@@ -204,9 +205,20 @@ _SCENARIO_LABELS = {
 }
 _SCENARIO_ORDER = ["real_data", "partial_failure", "synthetic_healthy"]
 
+# data_console/serve_data_console.py can serve these same 3 files itself
+# (at /dashboard/control_tower_<scenario>.html, reading the same files this
+# script writes) so that a single running server is "the app" and this link
+# and that route are two ends of the same connection - but a statically
+# generated page can't know at write-time whether it is being opened
+# straight from disk or through that server, so this always links to the
+# server's own root. Respects SUPPLYMIND_DATA_CONSOLE_PORT the same way
+# data_console.serve_data_console.main() does, so the link still resolves
+# if that server wasn't started on its default port.
+_DATA_CONSOLE_URL = f"http://127.0.0.1:{os.environ.get('SUPPLYMIND_DATA_CONSOLE_PORT', _DATA_CONSOLE_DEFAULT_PORT)}/"
+
 
 def _nav_links(current_scenario: str) -> list[tuple[str, str | None]]:
-    return [
+    return [("Data Console", _DATA_CONSOLE_URL)] + [
         (_SCENARIO_LABELS[s], None if s == current_scenario else f"control_tower_{s}.html")
         for s in _SCENARIO_ORDER
     ]

@@ -36,6 +36,7 @@ import os
 import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from string import Template
 from typing import Callable
 from urllib.parse import unquote
@@ -68,6 +69,34 @@ from data_integration.postgres_connector import PostgresIntegrationError, fetch_
 logger = get_logger()
 
 DEFAULT_PORT = 8766
+
+# Lets this server also serve the 3 static Executive Control Tower pages
+# dashboard/run_sample_dashboard.py generates on disk (dashboard/control_
+# tower_<scenario>.html), so "open data_console, click through to the
+# dashboard, click back" is one browser tab on one origin instead of
+# juggling separate file:// paths. A sibling top-level directory reached
+# by relative filesystem path from this module's own __file__ - not an
+# `import dashboard`, which would create the exact "A imports B imports
+# A" this repo's Modular Composition Rule forbids: dashboard/run_sample_
+# dashboard.py already imports from data_console (MappingStore,
+# preview_mapping, ...), so data_console importing dashboard back would
+# be a live cycle, not just style. The scenario/label pair is duplicated
+# from dashboard/run_sample_dashboard.py's own _SCENARIO_LABELS for the
+# same reason (see forecasting/aggregation.py's _FALLBACK_DATE_FORMATS
+# for the earlier instance of this same tradeoff in this repo).
+_DASHBOARD_HTML_DIR = Path(__file__).resolve().parent.parent / "dashboard"
+_DASHBOARD_SCENARIO_LABELS: dict[str, str] = {
+    "real_data": "Live Data",
+    "partial_failure": "Demo: Partial Data",
+    "synthetic_healthy": "Demo: Healthy Example",
+}
+# Served filename -> allowed. Checked by exact match before ever touching
+# the filesystem, so a request path can never be turned into an arbitrary
+# file read (Security Enforcement Layer: untrusted request input is never
+# used to build a path/query without validation first).
+_DASHBOARD_FILENAMES: frozenset[str] = frozenset(
+    f"control_tower_{scenario}.html" for scenario in _DASHBOARD_SCENARIO_LABELS
+)
 
 # A selection with a handful of columns and one join is nowhere near this
 # size; the cap exists purely so a malformed/absurd Content-Length can
@@ -142,6 +171,16 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   }
   h3 { font-size: 15px; font-weight: 600; margin: 0; color: var(--ink); }
   .topbar { margin-bottom: 24px; }
+  .nav-bar {
+    display: flex; gap: 6px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 5px; box-shadow: var(--shadow); width: fit-content;
+  }
+  .nav-item {
+    font-size: 12.5px; font-weight: 600; padding: 7px 14px; border-radius: 7px; text-decoration: none;
+    color: var(--ink-soft);
+  }
+  a.nav-item:hover { background: var(--brand-tint); color: var(--brand-dark); }
+  .nav-current { background: var(--brand); color: white; }
   .meta { color: var(--ink-soft); font-size: 14px; margin-bottom: 20px; }
   .intro {
     background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand); border-radius: 10px;
@@ -288,6 +327,12 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
 <body>
 <div class="page">
   <div class="topbar">
+    <div class="nav-bar">
+      <span class="nav-item nav-current">Data Console</span>
+      <a class="nav-item" href="/dashboard/control_tower_real_data.html">Live Data</a>
+      <a class="nav-item" href="/dashboard/control_tower_partial_failure.html">Demo: Partial Data</a>
+      <a class="nav-item" href="/dashboard/control_tower_synthetic_healthy.html">Demo: Healthy Example</a>
+    </div>
     <div class="kicker">Supply Chain Data</div>
     <h1>Data Console</h1>
     <div class="meta">Connect your data once, then map it to the datasets this system needs for analysis.</div>
@@ -1954,6 +1999,12 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
         if self.path == "/api/mappings":
             self._handle_list_mappings()
             return
+        if self.path == "/dashboard" or self.path == "/dashboard/":
+            self._handle_dashboard_page("control_tower_real_data.html")
+            return
+        if self.path.startswith("/dashboard/"):
+            self._handle_dashboard_page(self.path[len("/dashboard/"):])
+            return
         match = _COLUMNS_PATH_RE.match(self.path)
         if match:
             self._handle_list_columns(unquote(match.group(1)))
@@ -2139,6 +2190,30 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
         store = MappingStore()
         mappings = {kind: _mapping_status_dict(store.get(kind)) for kind in BY_NAME}
         self._send_json(200, {"mappings": mappings})
+
+    def _handle_dashboard_page(self, filename: str) -> None:
+        """Serves one of the 3 pre-generated Executive Control Tower pages from
+        dashboard/'s own output directory. filename must exactly match one this
+        module's own allowlist names - see _DASHBOARD_FILENAMES's docstring on
+        why this never touches the filesystem with an unvalidated request path.
+        The dashboard pages' own nav bar already links to these exact filenames
+        as relative hrefs (dashboard/render.py's _render_nav), so this needs no
+        change on that side to keep working whether a page is opened directly
+        from disk or through this route."""
+        if filename not in _DASHBOARD_FILENAMES:
+            self._send_json(404, {"error": f"unknown dashboard page {filename!r}"})
+            return
+        html_path = _DASHBOARD_HTML_DIR / filename
+        if not html_path.is_file():
+            self._send_html(
+                404,
+                "<!doctype html><html><head><meta charset=\"utf-8\"><title>Dashboard not generated yet</title></head>"
+                "<body><h1>Dashboard not generated yet</h1><p>Run "
+                "<code>python3 -m dashboard.run_sample_dashboard</code> from the repo root, then reload this "
+                "page.</p></body></html>",
+            )
+            return
+        self._send_html(200, html_path.read_text(encoding="utf-8"))
 
     def _handle_save_mapping(self, dataset_kind: str, raw_body: bytes) -> None:
         if dataset_kind not in BY_NAME:
