@@ -29,6 +29,16 @@ def test_agent_response_accepts_explicit_findings():
     assert response.findings == [finding]
 
 
+def test_agent_response_accepts_category_and_region_subject_kinds():
+    findings = [
+        AgentFinding(subject="Electronics", subject_kind="category", severity="medium", detail="demand up 20%"),
+        AgentFinding(subject="West", subject_kind="region", severity="low", detail="demand steady"),
+    ]
+    response = AgentResponse(agent_name="a", status="ok", recommendation="See breakdown", findings=findings)
+
+    assert validate_response(response) is response
+
+
 def test_validate_response_accepts_a_well_formed_error_response():
     response = AgentResponse(agent_name="a", status="error", error="upstream data unavailable")
 

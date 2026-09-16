@@ -52,6 +52,11 @@ CUSTOMER_ORDERS = DatasetRequirements(
         ColumnRequirement("order_date", "The date an order was placed", "2025-08-15", is_date=True),
         ColumnRequirement("quantity", "How many units were ordered", "120"),
     ],
+    optional=[
+        ColumnRequirement("sku", "The item ordered — without it, the demand forecast is one aggregate total instead of broken out per item", "SKU-WIDGET"),
+        ColumnRequirement("category", "The item's product category — without it, the demand forecast can't be broken out per category", "Electronics"),
+        ColumnRequirement("region", "Where the order shipped to/from — without it, the demand forecast can't be broken out per region", "West"),
+    ],
 )
 
 INVENTORY = DatasetRequirements(
@@ -63,6 +68,12 @@ INVENTORY = DatasetRequirements(
         ColumnRequirement("safety_stock", "The minimum buffer you want to keep on hand", "50"),
         ColumnRequirement("daily_demand_rate", "Units you typically sell/use per day", "15"),
         ColumnRequirement("lead_time_days", "Days it takes a reorder to arrive", "10"),
+    ],
+    optional=[
+        ColumnRequirement("incoming_stock", "Confirmed units already on order, not yet received — without it, risk is assessed on-hand stock only", "200"),
+        ColumnRequirement("unit_price", "The item's selling price — without it, revenue-at-risk can't be calculated", "49.99"),
+        ColumnRequirement("demand_std_dev", "Day-to-day variability in demand — without it, stockout probability falls back to a coverage-based estimate instead of a statistical one", "4.2"),
+        ColumnRequirement("supplier", "Which supplier this item is sourced from — without it, Delivery Intelligence can't link this item's stockout risk back to its supplier's delivery reliability", "Acme Supply"),
     ],
 )
 

@@ -27,10 +27,12 @@ already follows.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Literal
 
-QualityDimension = Literal["completeness"]
+QualityDimension = Literal["completeness", "validity"]
 QualitySeverity = Literal["good", "fair", "poor", "critical"]
 
 # Score-bucket severity, higher-is-better - opposite polarity from this
@@ -115,12 +117,77 @@ def _completeness_check(rows: list[dict[str, Any]], required_fields: tuple[str, 
     )
 
 
+def _is_valid_number(value: Any) -> bool:
+    """A value this repo's numeric fields would accept: a real number, not NaN, not a bool.
+
+    `bool` is excluded explicitly - it's an `int` subclass in Python, so
+    `isinstance(True, int)` is True, but a boolean where a quantity/cost
+    is expected is a type mismatch, not a valid 0/1. A numeric-looking
+    string (e.g. "1200.00", as a CSV upload or an unconverted API
+    response field might carry) is accepted via a plain float() parse -
+    "parseable" is explicitly part of what this dimension promises to
+    check, per assess_data_quality()'s own docstring.
+    """
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return not (isinstance(value, float) and math.isnan(value))
+    if isinstance(value, Decimal):
+        return not value.is_nan()
+    if isinstance(value, str):
+        try:
+            return not math.isnan(float(value.strip()))
+        except ValueError:
+            return False
+    return False
+
+
+def _validity_check(rows: list[dict[str, Any]], numeric_fields: tuple[str, ...]) -> QualityCheckResult:
+    """Of the rows that carry each of `numeric_fields`, how many hold a genuinely valid number.
+
+    Deliberately scoped to *presence* first: a row missing a numeric
+    field entirely is completeness's concern, not this one - double-
+    counting one missing field against two dimensions would understate
+    the real quality score for a mundane reason (a field simply wasn't
+    supplied) rather than a genuine validity problem (the field was
+    supplied but is garbage). Only rows carrying every field in
+    `numeric_fields` are checked here; scored None (not counted at all)
+    if no row carries the full set, the same "can't verify, don't guess"
+    convention `assess_data_quality()`'s own empty-rows case already
+    sets.
+
+    Does not handle: whether a valid number is in a sensible *range*
+    (non-negative stock, positive lead time, etc.) - that is domain
+    business logic this module's own docstring already says belongs to
+    inventory_risk/data_quality.py and friends, not this generic tool.
+    """
+    checkable = [row for row in rows if all(f in row and row[f] is not None for f in numeric_fields)]
+    sample_issues: list[str] = []
+    issue_rows = 0
+    for row in checkable:
+        invalid = [f for f in numeric_fields if not _is_valid_number(row[f])]
+        if invalid:
+            issue_rows += 1
+            if len(sample_issues) < 5:
+                sample_issues.append(f"invalid value for field(s): {', '.join(invalid)}")
+
+    score = ((len(checkable) - issue_rows) / len(checkable)) * 100.0 if checkable else None
+    return QualityCheckResult(
+        dimension="validity",
+        score=score,
+        checked_rows=len(checkable),
+        issue_rows=issue_rows,
+        sample_issues=sample_issues,
+    )
+
+
 def assess_data_quality(
     rows: list[dict[str, Any]],
     *,
     required_fields: tuple[str, ...],
+    numeric_fields: tuple[str, ...] = (),
 ) -> DataQualityReport:
-    """Score `rows` for completeness against `required_fields` and combine into a Data Quality Score.
+    """Score `rows` for completeness (and, optionally, validity) into a Data Quality Score.
 
     Handles: an empty `rows` list (scored None, not 0 or 100 - "no data"
     is a different condition from "bad data" and must not read as either
@@ -133,15 +200,21 @@ def assess_data_quality(
     Raises DataQualityError for empty `required_fields` - nothing would
     be checked, so that is a caller/parameter bug, not a data problem.
 
-    Does not handle: whether a present field's *value* is well-formed
-    (numeric, in range, parseable) - that is a later dimension, not this
-    one.
+    `numeric_fields` (optional, defaults to empty): the subset of fields
+    that should hold genuinely valid numbers wherever present - see
+    _validity_check()'s own docstring. Omitted entirely (the default)
+    when a caller has no numeric fields worth checking, in which case
+    only the completeness dimension is scored, exactly as before this
+    parameter existed - fully backward compatible with every existing
+    caller.
     """
     if not required_fields:
         raise DataQualityError("required_fields must be non-empty")
 
     completeness = _completeness_check(rows, required_fields)
     dimension_results = [completeness]
+    if numeric_fields:
+        dimension_results.append(_validity_check(rows, numeric_fields))
 
     scored = [d.score for d in dimension_results if d.score is not None]
     overall_score = sum(scored) / len(scored) if scored else None

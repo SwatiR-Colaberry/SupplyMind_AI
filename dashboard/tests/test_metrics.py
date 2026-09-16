@@ -1,6 +1,6 @@
 from agents.contracts import AgentFinding, AgentResponse
 from agents.orchestrator import CoordinationResult
-from dashboard.metrics import build_dashboard
+from dashboard.metrics import build_dashboard, compute_kpi_summary
 
 
 def _ok_result(agent_name, recommendation="all clear", confidence=0.9, findings=None):
@@ -149,3 +149,53 @@ def test_error_tile_has_no_findings():
     snapshot = build_dashboard([_agent_error_result("stockout_risk_agent")])
 
     assert snapshot.metrics[0].findings == []
+
+
+def test_compute_kpi_summary_sums_metric_value_across_findings():
+    findings = [
+        AgentFinding(subject="SKU-1", subject_kind="sku", severity="critical", detail="d", metric_value=1000.0),
+        AgentFinding(subject="SKU-2", subject_kind="sku", severity="high", detail="d", metric_value=250.0),
+    ]
+    snapshot = build_dashboard([_ok_result("stockout_risk_agent", findings=findings)])
+
+    kpis = compute_kpi_summary(snapshot)
+
+    assert kpis.total_revenue_at_risk == 1250.0
+    assert kpis.total_shipment_delay_cost is None  # that metric isn't in this snapshot at all
+
+
+def test_compute_kpi_summary_is_none_when_no_finding_carries_a_value():
+    # Every SKU assessed, but none has a unit_price - genuinely unknown,
+    # not zero, per KPISummary's own "never default to a false midpoint"
+    # rule.
+    findings = [AgentFinding(subject="SKU-1", subject_kind="sku", severity="low", detail="d", metric_value=None)]
+    snapshot = build_dashboard([_ok_result("stockout_risk_agent", findings=findings)])
+
+    assert compute_kpi_summary(snapshot).total_revenue_at_risk is None
+
+
+def test_compute_kpi_summary_is_zero_when_the_metric_ran_clean_with_no_findings():
+    # shipment_delay_analysis_agent with an empty findings list means "ran
+    # fine, found zero delays" - a real, computed 0.0, not unknown.
+    snapshot = build_dashboard([_ok_result("shipment_delay_analysis_agent", findings=[])])
+
+    assert compute_kpi_summary(snapshot).total_shipment_delay_cost == 0.0
+
+
+def test_compute_kpi_summary_is_none_when_the_tile_errored():
+    snapshot = build_dashboard([_agent_error_result("stockout_risk_agent")])
+
+    assert compute_kpi_summary(snapshot).total_revenue_at_risk is None
+
+
+def test_compute_kpi_summary_ignores_findings_with_no_metric_value_when_summing_the_rest():
+    # A mix of priced and unpriced SKUs must sum only the priced ones,
+    # not treat the unpriced SKU's None as a 0 contribution or invalidate
+    # the whole sum.
+    findings = [
+        AgentFinding(subject="SKU-1", subject_kind="sku", severity="critical", detail="d", metric_value=500.0),
+        AgentFinding(subject="SKU-2", subject_kind="sku", severity="low", detail="d", metric_value=None),
+    ]
+    snapshot = build_dashboard([_ok_result("stockout_risk_agent", findings=findings)])
+
+    assert compute_kpi_summary(snapshot).total_revenue_at_risk == 500.0

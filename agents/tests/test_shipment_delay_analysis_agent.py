@@ -64,6 +64,19 @@ def test_run_returns_ok_response_with_a_finding_per_delayed_po(tmp_path):
     assert "$" in response.recommendation
 
 
+def test_run_findings_carry_delay_cost_as_metric_value_for_dashboard_kpi_rollups(tmp_path):
+    # dashboard/metrics.py's compute_kpi_summary() sums AgentFinding.
+    # metric_value across this agent's findings - it must match each
+    # PO's own real total_cost, not be left unset.
+    agent = ShipmentDelayAnalysisAgent(ShipmentDelayAuditStore(tmp_path / "audit.jsonl"))
+    rows = _delayed_rows("SlowFreight")
+
+    response = agent.run(AgentQuery(text="analyze shipment delays", context={"delivery_rows": rows}))
+
+    assert response.status == "ok"
+    assert all(f.metric_value is not None and f.metric_value > 0 for f in response.findings)
+
+
 def test_run_uses_a_custom_cost_per_day_late(tmp_path):
     agent = ShipmentDelayAnalysisAgent(ShipmentDelayAuditStore(tmp_path / "audit.jsonl"))
     rows = [_delivery_row(po_id="PO-1", expected_date="2025-01-01", actual_date="2025-01-06")]  # 5 days late

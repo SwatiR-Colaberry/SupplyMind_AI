@@ -150,3 +150,45 @@ def test_decimal_nan_is_flagged_not_treated_as_clean():
     report = assess_inventory_data_quality(rows)
     assert report.clean_rows == []
     assert "current_stock is NaN" in report.flagged_rows[0].reasons
+
+
+def test_valid_optional_fields_are_normalized_to_float_and_kept():
+    rows = [_row(incoming_stock=Decimal("50"), unit_price="19.99", demand_std_dev=3.5)]
+    # unit_price passed as a string here specifically because a bad string
+    # (see the next test) must be dropped, not crash - "19.99" as a string
+    # is still an invalid type by this function's own numeric-type check,
+    # so it's dropped too; this documents that only real numeric types
+    # (int/float/Decimal) are accepted, same rule as the required fields.
+    report = assess_inventory_data_quality(rows)
+    assert len(report.clean_rows) == 1
+    clean = report.clean_rows[0]
+    assert clean["incoming_stock"] == 50.0 and type(clean["incoming_stock"]) is float
+    assert "unit_price" not in clean
+    assert clean["demand_std_dev"] == 3.5
+
+
+def test_a_row_with_no_optional_fields_at_all_is_unaffected():
+    report = assess_inventory_data_quality([_row()])
+    assert "incoming_stock" not in report.clean_rows[0]
+    assert "unit_price" not in report.clean_rows[0]
+    assert "demand_std_dev" not in report.clean_rows[0]
+
+
+def test_an_invalid_optional_field_is_dropped_not_left_as_the_raw_bad_value():
+    # Regression: naively merging {**row, **normalized} left the ORIGINAL
+    # invalid value in place for any field _normalize_optional_fields
+    # decided to skip, since a skipped key never appears in `normalized`
+    # to override it - a caller further downstream would then receive a
+    # non-numeric unit_price it never validated itself.
+    rows = [_row(unit_price="not a number")]
+    report = assess_inventory_data_quality(rows)
+    assert len(report.clean_rows) == 1
+    assert "unit_price" not in report.clean_rows[0]
+    assert report.flagged_rows == []  # an optional field's bad value never flags the whole row
+
+
+def test_a_negative_optional_field_is_dropped():
+    rows = [_row(incoming_stock=-5.0)]
+    report = assess_inventory_data_quality(rows)
+    assert "incoming_stock" not in report.clean_rows[0]
+    assert report.flagged_rows == []

@@ -26,8 +26,9 @@ from typing import Any
 
 from agents.contracts import AgentFinding, AgentQuery, AgentResponse
 from agents.logging_setup import get_logger
-from inventory_risk.data_quality import REQUIRED_FIELDS, FlaggedRow, assess_inventory_data_quality
+from inventory_risk.data_quality import OPTIONAL_NUMERIC_FIELDS, REQUIRED_FIELDS, FlaggedRow, assess_inventory_data_quality
 from inventory_risk.risk_model import InventoryPosition, RiskModelError, StockoutRiskAssessment, assess_stockout_risk
+from recommendation.stockout_playbook import build_stockout_recommendation
 
 logger = get_logger()
 
@@ -114,7 +115,10 @@ class StockoutRiskAgent:
         assessments: list[StockoutRiskAssessment] = []
         prediction_errors: list[str] = []
         for row in quality.clean_rows:
-            position = InventoryPosition(**{f: row[f] for f in REQUIRED_FIELDS})
+            optional_fields = {f: row[f] for f in OPTIONAL_NUMERIC_FIELDS if f in row}
+            if row.get("supplier") is not None:
+                optional_fields["supplier"] = row["supplier"]
+            position = InventoryPosition(**{f: row[f] for f in REQUIRED_FIELDS}, **optional_fields)
             try:
                 assessment = assess_stockout_risk(position)
             except RiskModelError as exc:
@@ -150,7 +154,31 @@ class StockoutRiskAgent:
 
         mean_confidence = sum(a.confidence for a in assessments) / len(assessments)
         findings = [
-            AgentFinding(subject=a.sku, subject_kind="sku", severity=a.risk_level, detail=a.detail)
+            AgentFinding(
+                subject=a.sku,
+                subject_kind="sku",
+                severity=a.risk_level,
+                # build_stockout_recommendation() is called here with no
+                # has_supplier_delay/demand_trend context - this agent only
+                # ever sees inventory_rows and no demand-history access (see
+                # recommendation/stockout_playbook.py's own "not wired into
+                # an agent's live pipeline" note) - so only its context-free
+                # rules (critical/high/medium/low, with-or-without incoming
+                # stock) can ever fire here. A caller with real
+                # supplier-delay/demand-trend context (e.g. root_cause_agent's
+                # own investigation flow) can still call
+                # build_stockout_recommendation() directly with that context
+                # for the sharper answer.
+                detail=f"{a.detail} Recommendation: {build_stockout_recommendation(a).recommendation}",
+                metric_value=a.revenue_at_risk,
+                # `a.supplier` (carried from the inventory row's optional
+                # "supplier" column - see InventoryPosition.supplier) is
+                # None whenever that column isn't mapped; not this agent's
+                # own concern beyond passing it through unchanged - see
+                # delivery_intelligence/narrative.py for the cross-agent
+                # correlation this enables.
+                supplier=a.supplier,
+            )
             for a in assessments
         ]
         return AgentResponse(

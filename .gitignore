@@ -13,6 +13,7 @@ simulation_audit_log.jsonl
 delay_analysis_audit_log.jsonl
 quality_audit_log.jsonl
 dashboard_audit_log.jsonl
+dashboard_approvals.jsonl
 chat_audit_log.jsonl
 mapping_audit_log.jsonl
 control_tower_*.html

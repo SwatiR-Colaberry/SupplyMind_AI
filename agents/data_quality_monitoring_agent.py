@@ -51,6 +51,18 @@ Query contract (via AgentQuery.context):
         risk_detection.anomaly_detection.REQUIRED_DELIVERY_FIELDS, the
         same required-field set every other delivery-row consumer in
         this repo already validates against.
+    "numeric_fields": tuple[str, ...], optional - passed through to
+        assess_data_quality() to score the validity dimension (is a
+        present numeric field's value actually a real, parseable
+        number). Defaults to DEFAULT_NUMERIC_FIELDS (just
+        "transportation_cost" today - the one optional numeric field
+        this repo's delivery rows already carry;
+        shipment_delay_analysis/delay_analysis.py validates the same
+        field for its own "recover gracefully" purpose, this agent's
+        purpose is the complementary "surface an aggregate score/alert
+        for the data steward" one, the same overlapping-but-distinct-
+        purpose pattern stockout_risk_agent/risk_detection_agent already
+        both assessing the same SKUs independently sets).
     "check_id": str, optional - passed through to
         DataQualityEvaluator.run() for idempotency; defaults to a fresh
         UUID per call if omitted.
@@ -72,6 +84,7 @@ from risk_detection.anomaly_detection import REQUIRED_DELIVERY_FIELDS
 logger = get_logger()
 
 DEFAULT_AUDIT_LOG_PATH = Path(data_quality_monitoring.__file__).resolve().parent / "quality_audit_log.jsonl"
+DEFAULT_NUMERIC_FIELDS: tuple[str, ...] = ("transportation_cost",)
 
 
 def _default_audit_store() -> QualityAuditStore:
@@ -127,6 +140,7 @@ class DataQualityMonitoringAgent:
         run = self._evaluator.run(
             raw_rows,
             required_fields=context.get("required_fields", REQUIRED_DELIVERY_FIELDS),
+            numeric_fields=context.get("numeric_fields", DEFAULT_NUMERIC_FIELDS),
             check_id=context.get("check_id"),
         )
 

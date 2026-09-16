@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 import pytest
 
-from forecasting.aggregation import AggregationError, aggregate_monthly_demand
+from forecasting.aggregation import AggregationError, aggregate_monthly_demand, aggregate_monthly_demand_by_group
 from forecasting.demand_model import DemandPoint
 
 
@@ -96,3 +96,44 @@ def test_aggregate_monthly_demand_rejects_unparseable_quantity():
 
     with pytest.raises(AggregationError, match="could not parse 'quantity'"):
         aggregate_monthly_demand(rows)
+
+
+def test_aggregate_monthly_demand_by_group_splits_history_per_group_value():
+    rows = [
+        {"sku": "SKU-1", "order_date": date(2025, 1, 5), "quantity": 10},
+        {"sku": "SKU-1", "order_date": date(2025, 2, 5), "quantity": 12},
+        {"sku": "SKU-2", "order_date": date(2025, 1, 5), "quantity": 100},
+    ]
+
+    result = aggregate_monthly_demand_by_group(rows, "sku")
+
+    assert result == {
+        "SKU-1": [DemandPoint("2025-01", 10.0), DemandPoint("2025-02", 12.0)],
+        "SKU-2": [DemandPoint("2025-01", 100.0)],
+    }
+
+
+def test_aggregate_monthly_demand_by_group_excludes_rows_missing_the_group_field():
+    rows = [
+        {"sku": "SKU-1", "order_date": date(2025, 1, 5), "quantity": 10},
+        {"order_date": date(2025, 1, 6), "quantity": 999},  # no "sku" - excluded entirely
+    ]
+
+    result = aggregate_monthly_demand_by_group(rows, "sku")
+
+    assert result == {"SKU-1": [DemandPoint("2025-01", 10.0)]}
+
+
+def test_aggregate_monthly_demand_by_group_returns_empty_dict_when_no_row_has_the_field():
+    rows = [{"order_date": date(2025, 1, 5), "quantity": 10}]
+
+    result = aggregate_monthly_demand_by_group(rows, "sku")
+
+    assert result == {}
+
+
+def test_aggregate_monthly_demand_by_group_still_raises_for_an_unparseable_quantity_within_a_group():
+    rows = [{"sku": "SKU-1", "order_date": date(2025, 1, 5), "quantity": "lots"}]
+
+    with pytest.raises(AggregationError, match="could not parse 'quantity'"):
+        aggregate_monthly_demand_by_group(rows, "sku")

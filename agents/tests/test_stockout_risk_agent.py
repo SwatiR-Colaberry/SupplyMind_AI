@@ -301,3 +301,86 @@ def test_run_logs_a_prediction_for_every_successfully_assessed_sku(monkeypatch):
     for call in predicted:
         assert "confidence" in call["context"]
         assert 0.0 <= call["context"]["confidence"] <= 1.0
+
+
+def test_run_passes_optional_fields_through_to_the_risk_model():
+    # A row carrying unit_price/incoming_stock/demand_std_dev must reach
+    # InventoryPosition, not just the 5 REQUIRED_FIELDS - otherwise a real
+    # mapped source that supplies these (see data_console's inventory
+    # column requirements) would have them silently dropped before ever
+    # reaching revenue_at_risk / recommended_safety_stock.
+    agent = StockoutRiskAgent()
+    rows = [_row(current_stock=100.0, safety_stock=5.0, daily_demand_rate=5.0, lead_time_days=25.0, unit_price=40.0)]
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert response.status == "ok"
+    assert "revenue at risk $1,000.00" in response.findings[0].detail
+
+
+def test_run_findings_carry_revenue_at_risk_as_metric_value_for_dashboard_kpi_rollups():
+    # dashboard/metrics.py's compute_kpi_summary() sums AgentFinding.
+    # metric_value across this agent's findings - it must be the same
+    # number the detail text already reports, not left unset.
+    agent = StockoutRiskAgent()
+    rows = [_row(current_stock=100.0, safety_stock=5.0, daily_demand_rate=5.0, lead_time_days=25.0, unit_price=40.0)]
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert response.findings[0].metric_value == pytest.approx(1000.0)
+
+
+def test_run_findings_metric_value_is_none_when_unpriced():
+    agent = StockoutRiskAgent()
+    rows = [_row()]  # no unit_price supplied
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert response.findings[0].metric_value is None
+
+
+def test_run_findings_include_a_stockout_playbook_recommendation():
+    # recommendation/stockout_playbook.py's rule table was built and
+    # tested standalone but not wired into any agent's live output -
+    # every per-SKU finding must now carry its own "Recommendation: ..."
+    # line, calling build_stockout_recommendation() with no extra
+    # supplier/demand context (this agent has none), so at minimum the
+    # context-free rules (critical/high/medium/low) fire.
+    agent = StockoutRiskAgent()
+    rows = [_row(sku="SKU-CRITICAL", current_stock=2.0, safety_stock=20.0)]
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert response.status == "ok"
+    assert "Recommendation:" in response.findings[0].detail
+    assert "immediate replenishment review" in response.findings[0].detail
+
+
+def test_run_tolerates_a_decimal_optional_field_from_a_real_database_row():
+    agent = StockoutRiskAgent()
+    rows = [_row(incoming_stock=Decimal("25.0"))]
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert response.status == "ok"
+
+
+def test_run_findings_supplier_is_none_when_not_mapped():
+    agent = StockoutRiskAgent()
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": [_row()]}))
+
+    assert response.findings[0].supplier is None
+
+
+def test_run_findings_carry_the_supplier_from_the_inventory_row():
+    # Enables delivery_intelligence/narrative.py's cross-agent correlation
+    # (a stockout finding needs to know which supplier its SKU is sourced
+    # from to be joined against supplier_evaluation_agent's own findings).
+    agent = StockoutRiskAgent()
+    rows = [_row(supplier="Acme Supply")]
+
+    response = agent.run(AgentQuery(text="assess", context={"inventory_rows": rows}))
+
+    assert response.status == "ok"
+    assert response.findings[0].supplier == "Acme Supply"

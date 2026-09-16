@@ -116,7 +116,9 @@ def test_preview_mapping_returns_remapped_rows_with_a_limit_appended(tmp_path):
     assert result.row_count == 2
     assert result.truncated is False
     profile = mock_fetch.call_args[0][0]
-    assert profile.query == 'SELECT * FROM (SELECT * FROM "acme_inventory") AS mapping_preview LIMIT 500'
+    from data_console.query_builder import PREVIEW_ROW_LIMIT
+
+    assert profile.query == f'SELECT * FROM (SELECT * FROM "acme_inventory") AS mapping_preview LIMIT {PREVIEW_ROW_LIMIT}'
 
 
 def test_preview_mapping_marks_truncated_at_the_row_limit(tmp_path):
@@ -210,6 +212,8 @@ def test_preview_mapping_for_a_query_mapping_wraps_the_saved_query(tmp_path):
 
     assert result.rows == [{"sku": "SKU-1"}]
     profile = mock_fetch.call_args[0][0]
+    from data_console.query_builder import PREVIEW_ROW_LIMIT
+
     assert profile.query == (
-        "SELECT * FROM (SELECT item_sku AS sku FROM acme_inventory) AS mapping_preview LIMIT 500"
+        f"SELECT * FROM (SELECT item_sku AS sku FROM acme_inventory) AS mapping_preview LIMIT {PREVIEW_ROW_LIMIT}"
     )

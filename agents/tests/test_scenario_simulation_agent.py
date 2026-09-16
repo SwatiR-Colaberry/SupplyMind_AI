@@ -79,7 +79,7 @@ def test_run_produces_an_impact_assessment_for_a_demand_spike_scenario(tmp_path)
     assert response.status == "ok"
     assert "worsens" in response.recommendation
     assert response.findings[0].subject == "SKU-1"
-    assert response.findings[0].severity == "high"
+    assert response.findings[0].severity == "critical"
 
 
 def test_run_persists_an_audit_record_with_timestamp_and_input_parameters(tmp_path):

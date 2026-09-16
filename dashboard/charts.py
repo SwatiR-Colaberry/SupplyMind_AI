@@ -55,6 +55,21 @@ _SUBJECT_KIND_PLURAL: dict[str, str] = {
     "po": "purchase orders",
     "period": "time periods",
     "supplier": "suppliers",
+    "category": "categories",
+    "region": "regions",
+}
+
+# Singular form for each plural above - kept as an explicit pair rather
+# than derived by stripping a trailing "s" off _SUBJECT_KIND_PLURAL
+# (which was fine for every kind added before "category": stripping
+# "categories" that way gives "categorie", not "category").
+_SUBJECT_KIND_SINGULAR: dict[str, str] = {
+    "sku": "SKU",
+    "po": "purchase order",
+    "period": "time period",
+    "supplier": "supplier",
+    "category": "category",
+    "region": "region",
 }
 
 _MAX_BARS_PER_CHART = 12
@@ -140,10 +155,11 @@ def _explore_charts(snapshot: DashboardSnapshot) -> list[ChartSpec]:
                 for f in shown
             ]
             plural = _SUBJECT_KIND_PLURAL.get(kind, f"{kind}s")
+            singular = _SUBJECT_KIND_SINGULAR.get(kind, kind)
             specs.append(
                 ChartSpec(
                     chart_id=f"{metric.metric_id}-{kind}",
-                    title=f"{metric.label} by {plural[:-1] if plural.endswith('s') else plural}",
+                    title=f"{metric.label} by {singular}",
                     question=f"Which {plural} need attention in {metric.label}?",
                     bars=bars,
                     omitted_count=max(0, len(ordered) - len(shown)),

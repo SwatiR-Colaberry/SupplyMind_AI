@@ -84,3 +84,38 @@ def aggregate_monthly_demand(
         totals[period] += quantity
 
     return [DemandPoint(period=period, quantity=total) for period, total in sorted(totals.items())]
+
+
+def aggregate_monthly_demand_by_group(
+    rows: list[dict[str, Any]],
+    group_field: str,
+    date_field: str = "order_date",
+    quantity_field: str = "quantity",
+) -> dict[str, list[DemandPoint]]:
+    """Same monthly aggregation as aggregate_monthly_demand(), split into one history per distinct group_field value.
+
+    For a per-SKU (or per-category/per-region) demand breakdown: each
+    group's own rows are aggregated exactly as aggregate_monthly_demand()
+    aggregates the whole dataset, just scoped to that group's rows first.
+
+    Handles: a row missing group_field is excluded from every group's
+    history entirely (not lumped into a fabricated "unknown" bucket) -
+    same presence-first discipline
+    data_quality_monitoring/quality_checks.py's _validity_check() already
+    applies to its own optional numeric_fields. Returns {} if no row
+    carries group_field at all, rather than raising - the caller (an
+    optional per-group breakdown on top of an otherwise-working aggregate
+    forecast) treats that the same as "this optional field isn't mapped
+    yet," not a data quality failure.
+    """
+    rows_by_group: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        group_value = row.get(group_field)
+        if group_value is None:
+            continue
+        rows_by_group[str(group_value)].append(row)
+
+    return {
+        group: aggregate_monthly_demand(group_rows, date_field, quantity_field)
+        for group, group_rows in rows_by_group.items()
+    }

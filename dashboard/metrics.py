@@ -94,6 +94,7 @@ _TILE_LABELS: dict[str, str] = {
     "supplier_evaluation_agent": "Supplier Risk",
     "shipment_delay_analysis_agent": "Shipment Delay",
     "data_quality_monitoring_agent": "Data Quality",
+    "delivery_intelligence_agent": "Delivery Intelligence",
     "recommendation_agent": "Recommendation",
 }
 
@@ -208,4 +209,59 @@ def build_dashboard(
         total_critical_findings=sum(m.critical_findings for m in metrics),
         total_high_findings=sum(m.high_findings for m in metrics),
         data_freshness=data_freshness or [],
+    )
+
+
+@dataclass(frozen=True)
+class KPISummary:
+    """A handful of dollar rollups an executive scans before anything else.
+
+    Deliberately narrow, not an exhaustive KPI set: only includes numbers
+    this repo actually computes from real per-finding data
+    (stockout_risk_agent's per-SKU revenue_at_risk, shipment_delay_
+    analysis_agent's per-PO delay cost, both carried on AgentFinding.
+    metric_value). Two KPIs a product vision might reasonably also want
+    here - overstock and orders-pending - are deliberately not included:
+    this repo has no overstock threshold defined anywhere and no
+    incoming/pending-order data source, so a number for either would be
+    fabricated, not computed. Add them once a real data source and
+    definition exist, not before.
+    """
+
+    # None means "unknown" (that tile wasn't in this snapshot's fleet, it
+    # errored, or none of its findings carried this number - e.g. no SKU
+    # has a unit_price yet) - distinct from 0.0, which means this was
+    # genuinely computed and came out to zero (e.g. shipment_delay_
+    # analysis_agent ran cleanly and found no delays at all). Never
+    # collapse the two, per this repo's "never default an unavailable
+    # signal to a false neutral midpoint" principle
+    # (inventory_risk/risk_model.py's compute_risk_score already applies
+    # this same rule to its own optional signals).
+    total_revenue_at_risk: float | None
+    total_shipment_delay_cost: float | None
+
+
+def _sum_metric_value(snapshot: DashboardSnapshot, metric_id: str) -> float | None:
+    for metric in snapshot.metrics:
+        if metric.metric_id != metric_id:
+            continue
+        if metric.status != "ok":
+            return None
+        values = [f.metric_value for f in metric.findings if f.metric_value is not None]
+        if not values and metric.findings:
+            return None  # findings exist but none carry this number - unknown, not zero
+        return sum(values)
+    return None  # this metric wasn't part of this snapshot's fleet at all
+
+
+def compute_kpi_summary(snapshot: DashboardSnapshot) -> KPISummary:
+    """Roll up the dollar KPIs this repo can actually compute from `snapshot`.
+
+    Pure and deterministic given its input, like build_dashboard() itself
+    - reads metric_value off findings already present on the snapshot,
+    never re-runs or re-fetches anything.
+    """
+    return KPISummary(
+        total_revenue_at_risk=_sum_metric_value(snapshot, "stockout_risk_agent"),
+        total_shipment_delay_cost=_sum_metric_value(snapshot, "shipment_delay_analysis_agent"),
     )

@@ -30,7 +30,18 @@ def _supplier_delay(po_id: str, severity: str) -> SupplierDelayAnomaly:
 
 def _stockout(sku: str, risk_level: str) -> StockoutRiskAssessment:
     return StockoutRiskAssessment(
-        sku=sku, days_of_supply=1.0, risk_level=risk_level, confidence=0.5, detail="detail"
+        sku=sku,
+        days_of_supply=1.0,
+        expected_inventory=1.0,
+        incoming_stock=0.0,
+        risk_level=risk_level,
+        confidence=0.5,
+        stockout_probability=0.5,
+        risk_score=50.0,
+        revenue_at_risk=None,
+        recommended_safety_stock=None,
+        supplier=None,
+        detail="detail",
     )
 
 

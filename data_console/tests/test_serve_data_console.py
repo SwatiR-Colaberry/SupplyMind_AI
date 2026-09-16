@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 import pytest
 
+from dashboard.approval_store import ApprovalStore
 from data_console.mapping_store import MappingStore
 from data_console.query_builder import PREVIEW_ROW_LIMIT
 from data_console.schema_inspector import ColumnInfo
@@ -147,13 +148,222 @@ def test_get_root_returns_html_page(server):
     assert "Connect Your Data" in resp.read().decode("utf-8")
 
 
-def test_get_root_page_links_to_the_3_dashboard_scenarios(server):
+def test_get_root_page_nav_bar_matches_the_other_local_apps(server):
+    # Regression guard (2026-09-11): this nav bar used to carry 3 extra
+    # dashboard-scenario links the chat/simulator screens' own nav bars
+    # never had, so Data Console showed 6 tabs while every other screen
+    # showed 4 - the exact "5 vs 4 tabs, feels like 2 different
+    # applications" report this fixes. Every local app now renders the
+    # same shared local_apps.theme.render_nav_bar(), so all screens show
+    # exactly the same top-level destinations (5, since Learn's addition
+    # on 2026-09-13).
+    import local_apps.urls as app_urls
+
     resp = urllib.request.urlopen(server + "/")
     body = resp.read().decode("utf-8")
 
-    assert 'href="/dashboard/control_tower_real_data.html"' in body
-    assert 'href="/dashboard/control_tower_partial_failure.html"' in body
-    assert 'href="/dashboard/control_tower_synthetic_healthy.html"' in body
+    assert body.count('class="nav-item') == 5
+    assert '<span class="nav-item nav-current">' in body
+    assert "Data Console</span>" in body
+    assert f'href="{app_urls.LIVE_DASHBOARD_URL}"' in body
+    assert f'href="{app_urls.CHAT_UI_URL}"' in body
+    assert f'href="{app_urls.SCENARIO_SIMULATOR_URL}"' in body
+
+
+def test_get_root_page_header_uses_the_shared_background_treatment_and_icon(server):
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert '<div class="page-header">' in body
+    assert '<div class="page-header-icon page-header-icon-brand">' in body
+    assert '<div class="kicker">Supply Chain Data</div>' in body
+    assert "<h1>Data Console</h1>" in body
+
+
+def test_get_root_page_no_longer_links_to_the_2_demo_dashboards(server):
+    # The 2 synthetic demo scenarios used to be linked from a small
+    # secondary row here (added right after the nav-bar regression fix
+    # above). A user later asked directly whether they were even needed
+    # once real data existed - the answer was no: removed from the UI
+    # entirely (they still exist, buildable via
+    # dashboard/run_sample_dashboard.py, as acceptance-criteria
+    # regression proof, just not linked from anywhere in the running app).
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "control_tower_partial_failure.html" not in body
+    assert "control_tower_synthetic_healthy.html" not in body
+    assert "Demo dashboards:" not in body
+
+
+def test_get_root_page_change_button_bypasses_auto_reconnect(server):
+    # Regression (2026-09-11): clicking "Change" while a database was
+    # reachable via SUPPLYMIND_PG_* env vars appeared to do nothing -
+    # loadConnectSection() unconditionally re-checked /api/tables, found
+    # that same still-reachable database, and silently re-adopted it as
+    # the active source before the connect chooser ever rendered. The fix
+    # is the skipAutoReconnect flag: set by the "Change" button, consulted
+    # once by loadConnectSection() to skip straight to the chooser instead
+    # of re-detecting the same database.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "skipAutoReconnect = true" in body
+    assert "if (skipAutoReconnect)" in body
+
+
+def test_get_root_page_includes_the_shared_first_visit_onboarding_overlay(server):
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert '<div class="onboarding-overlay" id="onboarding-overlay">' in body
+
+
+def test_get_root_page_uses_designed_empty_states_for_the_tables_panel(server):
+    # The disconnected message and the "pick a table" message used to be
+    # plain placeholder text - now a designed icon+title+text card (see
+    # local_apps/theme.py's TOKENS_CSS .empty-state and this file's own
+    # client-side emptyState() helper, needed since this content is built
+    # via DOM calls at runtime, not the server-rendered page template).
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "function emptyState(" in body
+    assert "'No database connected'" in body
+    assert "emptyState(_ICON_TABLE.cloneNode(true), 'No table selected'" in body
+
+
+def test_get_root_page_uses_a_domain_specific_icon_for_the_no_database_empty_state(server):
+    # A design-review ask for empty states to match "the theme of the
+    # app" - "No database connected" is about a missing data source
+    # altogether, not a specific missing table, so it gets a warehouse
+    # icon instead of reusing the generic table icon.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "const _ICON_WAREHOUSE = icon(" in body
+    assert "emptyState(\n      _ICON_WAREHOUSE.cloneNode(true),\n      'No database connected'" in body
+
+
+def test_get_root_page_your_tables_is_gated_on_the_active_source_being_a_database(server):
+    # Regression (2026-09-12): "Your Tables" used to be gated only on
+    # /api/tables' own "is a database reachable at all" check, independent
+    # of what the user actually picked under "Connect Your Data" - so it
+    # kept showing a live table list even after the user explicitly chose
+    # a CSV or Google Sheet as their active source, if a database also
+    # happened to be reachable in the background (e.g. via SUPPLYMIND_PG_*
+    # env vars). Now gated on activeSourceKind, kept in sync by every
+    # "Connect Your Data" action and by the initial page load being
+    # sequenced after loadConnectSection() resolves it.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "if (!userSelectedDatabase)" in body
+    assert "loadConnectSection().then(loadTables)" in body
+
+
+def test_get_root_page_your_tables_requires_an_explicit_database_connection(server):
+    # Regression (2026-09-12, second report): gating on activeSourceKind
+    # alone (the fix above) still left a real hole - activeSourceKind gets
+    # silently set to 'database' by a background reachability check (a
+    # database reachable via SUPPLYMIND_PG_* env vars, with no click from
+    # the user at all), both in loadConnectSection()'s "already connected"
+    # branch and in startMapping()'s own /api/tables check. A user who
+    # mapped every dataset from an uploaded CSV still saw a full live table
+    # browser and reported it as "this should only be visible if we have
+    # selected Database as a source." userSelectedDatabase is only ever
+    # set inside renderDbConnectionForm's own submit handler - the one
+    # place a "Connect a Database" form was actually filled in and
+    # succeeded - never by a silent reachability check.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "let userSelectedDatabase = false;" in body
+    assert "userSelectedDatabase = true;" in body
+    assert "userSelectedDatabase = false;\n    skipAutoReconnect = true;" in body
+
+
+def test_get_root_page_disabled_buttons_are_visibly_greyed_out(server):
+    # Regression (2026-09-12): .btn never had its own :disabled rule, so
+    # the mapping wizard's Back/Next buttons (disabled at each end) had no
+    # custom greyed-out appearance at all - a user asked for exactly that.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert ".btn:disabled" in body
+    assert ".btn-primary:disabled" in body
+
+
+def test_get_root_page_explains_the_run_analysis_status_word_with_a_tooltip(server):
+    # Added 2026-09-12 after a user asked what "Degraded" means on the
+    # Executive Control Tower - this status word (ok/degraded/error) also
+    # appears in the Run Analysis result summary right above it.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "_STATUS_EXPLANATIONS" in body
+    assert "Some data sources or checks failed to run" in body
+
+
+def test_get_root_page_mapping_fields_render_as_a_list_with_the_name_distinguished(server):
+    # Regression (2026-09-12, second report): the first fix here (a closed
+    # <details> disclosure) still rendered every field as one run-on
+    # sentence once opened - a user asked for an actual list with the
+    # field name visually distinguished, not prose. Field name/required-
+    # or-optional/description/example each get their own element now.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "className: 'field-list'" in body
+    assert "className: 'field-name'" in body
+    assert "field-required-tag" in body
+    assert "field-optional-tag" in body
+
+
+def test_get_root_page_map_your_data_is_a_3_tab_wizard(server):
+    # Regression (2026-09-12, fourth report): the 3 datasets used to
+    # render as 3 side-by-side cards each mixing mapping controls and the
+    # full field reference together - a user asked for a 3-tab wizard
+    # instead: mapping on the left of a 2-column box, field info on the
+    # right, Next/Back to move between the 3 datasets.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "mapping-tab-strip" in body
+    assert "mapping-box-left" in body
+    assert "mapping-box-right" in body
+    assert "'← Back'" in body
+    assert "'Next →'" in body
+    assert "let activeMappingTabIndex = 0;" in body
+
+
+def test_mapping_box_no_longer_clips_its_own_tooltip(server):
+    # Regression (2026-09-12, fourth report): .mapping-box had overflow:
+    # hidden, added only to keep its 2 rectangular columns' square corners
+    # from poking past the box's own rounded ones - that also silently
+    # clipped the "Run Analysis" status .term tooltip living inside it. A
+    # user reported the tooltip "not visible." The corner rounding now
+    # lives on each column directly, so the box no longer clips anything.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    box_start = body.index(".mapping-box {")
+    box_rule = body[box_start : body.index("}", box_start)]
+    assert "overflow: hidden" not in box_rule
+    assert "border-radius: 0 0 0 10px;" in body
+    assert "border-radius: 0 10px 10px 0;" in body
+
+
+def test_get_root_page_no_longer_has_its_own_glossary_panel(server):
+    # Regression (2026-09-13): this page's compact glossary panel (added
+    # 2026-09-12, fifth report) moved to a dedicated Glossary screen after
+    # a follow-up pointed out it was "only accessible in [the] what if
+    # tab" and that the panel "has not been removed from other pages"
+    # once that screen existed.
+    resp = urllib.request.urlopen(server + "/")
+    body = resp.read().decode("utf-8")
+
+    assert "glossary-panel" not in body
 
 
 def test_get_unknown_path_returns_404(server):
@@ -415,6 +625,10 @@ def test_api_columns_includes_suggested_mappings_for_a_differently_named_table(s
         "safety_stock": "min_stock",
         "daily_demand_rate": "daily_use",
         "lead_time_days": "lead_days",
+        "incoming_stock": None,
+        "unit_price": None,
+        "demand_std_dev": None,
+        "supplier": None,
     }
 
 
@@ -1128,3 +1342,89 @@ def test_get_mapping_preview_for_a_sheet_mapping_reports_a_broken_link_as_a_clea
 
     assert status == 400
     assert "no longer public" in data["error"]
+
+
+def test_post_run_analysis_returns_the_pipeline_summary(server):
+    # The actual pipeline (agents, DashboardEvaluator, writing the real
+    # control_tower_real_data.html) is dashboard/live_refresh.py's own
+    # responsibility and is tested there - this route's own job is just to
+    # call it and relay the result, so it's mocked out here rather than
+    # re-run end-to-end against this test's throwaway mappings.
+    summary = {
+        "scenario": "real_data", "build_outcome": "success", "crash_error": None,
+        "overall_status": "ok", "notification": None,
+        "tiles": [{"metric_id": "stockout_risk_agent", "status": "ok", "severity": "low"}],
+        "data_sources": [{"dataset": "inventory", "outcome": "success"}],
+        "total_critical_findings": 0, "total_high_findings": 0,
+        "html_path": "/tmp/control_tower_real_data.html",
+    }
+    with patch("data_console.serve_data_console.refresh_real_data_dashboard", return_value=summary):
+        status, data = _post(server, "/api/run-analysis")
+
+    assert status == 200
+    assert data == summary
+
+
+def test_post_run_analysis_surfaces_an_unexpected_crash_as_a_500_not_a_hang(server):
+    # _dispatch_safely already guarantees any unhandled exception in a route
+    # becomes a 500 with a real body instead of a dropped connection (see
+    # its own docstring) - this confirms that guarantee actually covers the
+    # new route too, rather than assuming it by inspection.
+    with patch(
+        "data_console.serve_data_console.refresh_real_data_dashboard", side_effect=RuntimeError("simulated agent crash")
+    ):
+        status, data = _post(server, "/api/run-analysis")
+
+    assert status == 500
+    assert "RuntimeError" in data["error"]
+
+
+def test_post_approve_records_a_decision_and_returns_it(server, tmp_path):
+    store = ApprovalStore(tmp_path / "approvals.jsonl")
+    payload = {"dashboard_id": "real_data", "metric_id": "stockout_risk_agent", "decision": "approved", "reviewer": "ali", "note": "looks right"}
+
+    with patch("data_console.serve_data_console.approval_store", return_value=store):
+        status, data = _post(server, "/api/approve", payload)
+
+    assert status == 200
+    assert data["dashboard_id"] == "real_data"
+    assert data["metric_id"] == "stockout_risk_agent"
+    assert data["decision"] == "approved"
+    assert data["reviewer"] == "ali"
+    # Actually persisted, not just echoed back.
+    assert store.latest_for("real_data", "stockout_risk_agent").decision == "approved"
+
+
+def test_post_approve_defaults_note_to_empty_string(server, tmp_path):
+    store = ApprovalStore(tmp_path / "approvals.jsonl")
+    payload = {"dashboard_id": "real_data", "metric_id": "stockout_risk_agent", "decision": "rejected", "reviewer": "ram"}
+
+    with patch("data_console.serve_data_console.approval_store", return_value=store):
+        status, data = _post(server, "/api/approve", payload)
+
+    assert status == 200
+    assert data["note"] == ""
+
+
+@pytest.mark.parametrize(
+    "payload,expected_error_fragment",
+    [
+        ({"metric_id": "stockout_risk_agent", "decision": "approved", "reviewer": "ali"}, "dashboard_id"),
+        ({"dashboard_id": "real_data", "decision": "approved", "reviewer": "ali"}, "metric_id"),
+        ({"dashboard_id": "real_data", "metric_id": "stockout_risk_agent", "reviewer": "ali"}, "decision"),
+        ({"dashboard_id": "real_data", "metric_id": "stockout_risk_agent", "decision": "maybe", "reviewer": "ali"}, "decision"),
+        ({"dashboard_id": "real_data", "metric_id": "stockout_risk_agent", "decision": "approved"}, "reviewer"),
+        ({"dashboard_id": "real_data", "metric_id": "stockout_risk_agent", "decision": "approved", "reviewer": "  "}, "reviewer"),
+    ],
+)
+def test_post_approve_rejects_invalid_payloads_with_a_400_naming_the_field(server, payload, expected_error_fragment):
+    status, data = _post(server, "/api/approve", payload)
+
+    assert status == 400
+    assert expected_error_fragment in data["error"]
+
+
+def test_post_approve_malformed_json_is_400(server):
+    status, data = _post_raw(server, "/api/approve", b"{not valid json", {"Content-Type": "application/json"})
+
+    assert status == 400

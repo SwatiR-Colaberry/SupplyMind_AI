@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 
 from data_quality_monitoring.quality_checks import (
@@ -83,3 +85,114 @@ def test_assess_data_quality_alerts_rather_than_fabricates_a_score_when_no_rows_
 def test_assess_data_quality_rejects_empty_required_fields():
     with pytest.raises(DataQualityError):
         assess_data_quality([_row()], required_fields=())
+
+
+# --- validity dimension: is a present numeric field's value actually well-formed ---
+
+
+def test_no_numeric_fields_means_only_completeness_is_scored():
+    # Backward compatibility: a caller that doesn't pass numeric_fields
+    # gets exactly the pre-existing behavior - no validity dimension at all.
+    rows = [_row("PO-1")]
+
+    report = assess_data_quality(rows, required_fields=REQUIRED)
+
+    assert [d.dimension for d in report.dimension_results] == ["completeness"]
+
+
+def test_validity_scores_100_when_every_numeric_field_is_a_real_number():
+    rows = [{**_row("PO-1"), "transportation_cost": 1200.0}, {**_row("PO-2"), "transportation_cost": 950}]
+
+    report = assess_data_quality(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",))
+
+    validity = next(d for d in report.dimension_results if d.dimension == "validity")
+    assert validity.score == 100.0
+    assert validity.checked_rows == 2
+    assert validity.issue_rows == 0
+
+
+def test_validity_flags_a_non_numeric_string_value():
+    rows = [{**_row("PO-1"), "transportation_cost": "N/A"}]
+
+    report = assess_data_quality(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",))
+
+    validity = next(d for d in report.dimension_results if d.dimension == "validity")
+    assert validity.score == 0.0
+    assert validity.issue_rows == 1
+    assert "transportation_cost" in validity.sample_issues[0]
+
+
+def test_validity_accepts_a_numeric_looking_string_as_parseable():
+    rows = [{**_row("PO-1"), "transportation_cost": "1200.50"}]
+
+    report = assess_data_quality(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",))
+
+    validity = next(d for d in report.dimension_results if d.dimension == "validity")
+    assert validity.score == 100.0
+
+
+def test_validity_accepts_a_decimal_value_from_a_real_database_row():
+    rows = [{**_row("PO-1"), "transportation_cost": Decimal("1200.50")}]
+
+    report = assess_data_quality(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",))
+
+    validity = next(d for d in report.dimension_results if d.dimension == "validity")
+    assert validity.score == 100.0
+
+
+def test_validity_rejects_nan():
+    rows = [{**_row("PO-1"), "transportation_cost": float("nan")}]
+
+    report = assess_data_quality(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",))
+
+    validity = next(d for d in report.dimension_results if d.dimension == "validity")
+    assert validity.issue_rows == 1
+
+
+def test_validity_rejects_a_bool_even_though_it_is_an_int_subclass():
+    # isinstance(True, int) is True in Python - a boolean where a cost is
+    # expected is a type mismatch, not a valid 0/1, and must not silently
+    # pass as "numeric."
+    rows = [{**_row("PO-1"), "transportation_cost": True}]
+
+    report = assess_data_quality(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",))
+
+    validity = next(d for d in report.dimension_results if d.dimension == "validity")
+    assert validity.issue_rows == 1
+
+
+def test_validity_does_not_penalize_a_row_missing_the_numeric_field_entirely():
+    # A missing field is completeness's concern, not validity's - double-
+    # counting it against both dimensions would understate the real score
+    # for a mundane reason (field simply not supplied), not a genuine
+    # validity problem.
+    rows = [{**_row("PO-1"), "transportation_cost": 1200.0}, _row("PO-2")]  # no transportation_cost at all
+
+    report = assess_data_quality(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",))
+
+    validity = next(d for d in report.dimension_results if d.dimension == "validity")
+    assert validity.checked_rows == 1  # only the row that actually carried the field
+    assert validity.issue_rows == 0
+
+
+def test_validity_scores_none_when_no_row_carries_the_full_numeric_field_set():
+    rows = [_row("PO-1"), _row("PO-2")]  # neither carries transportation_cost
+
+    report = assess_data_quality(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",))
+
+    validity = next(d for d in report.dimension_results if d.dimension == "validity")
+    assert validity.score is None
+    assert validity.checked_rows == 0
+
+
+def test_overall_score_averages_completeness_and_validity_when_both_are_scored():
+    # completeness=100 (both rows carry po_id/expected_date/actual_date),
+    # validity=50 (1 of 2 transportation_cost values is garbage) -> (100+50)/2 = 75.
+    rows = [
+        {**_row("PO-1"), "transportation_cost": 1200.0},
+        {**_row("PO-2"), "transportation_cost": "garbage"},
+    ]
+
+    report = assess_data_quality(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",))
+
+    assert report.overall_score == pytest.approx(75.0)

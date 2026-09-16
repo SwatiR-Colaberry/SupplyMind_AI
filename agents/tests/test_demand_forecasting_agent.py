@@ -178,6 +178,162 @@ def test_run_returns_error_response_for_malformed_previous_forecast_points():
     assert "invalid previous_forecast_points entry" in response.error
 
 
+def _per_sku_demand_rows(months: int = 6) -> list[dict]:
+    rows = []
+    for m in range(1, months + 1):
+        rows.append({"sku": "SKU-1", "order_date": date(2025, m, 5), "quantity": 100 + m})
+        rows.append({"sku": "SKU-2", "order_date": date(2025, m, 10), "quantity": 10})
+    return rows
+
+
+def test_run_findings_stays_empty_when_no_row_carries_a_sku_field():
+    # Backward-compat: a caller/dataset that never maps "sku" onto
+    # customer_orders gets exactly today's aggregate-only behavior, not a
+    # degraded or error response.
+    agent = DemandForecastingAgent()
+
+    response = agent.run(AgentQuery(text="forecast", context={"demand_history": _demand_rows()}))
+
+    assert response.status == "ok"
+    assert response.findings == []
+
+
+def test_run_adds_one_finding_per_forecastable_sku():
+    agent = DemandForecastingAgent()
+
+    response = agent.run(AgentQuery(text="forecast", context={"demand_history": _per_sku_demand_rows()}))
+
+    assert response.status == "ok"
+    subjects = {f.subject for f in response.findings}
+    assert subjects == {"SKU-1", "SKU-2"}
+    assert all(f.subject_kind == "sku" for f in response.findings)
+
+
+def test_run_skips_a_sku_with_too_little_history_without_failing_the_others():
+    rows = _per_sku_demand_rows(months=6)
+    rows.append({"sku": "SKU-3", "order_date": date(2025, 1, 1), "quantity": 5})  # only 1 month - unforecastable
+    agent = DemandForecastingAgent()
+
+    response = agent.run(AgentQuery(text="forecast", context={"demand_history": rows}))
+
+    assert response.status == "ok"
+    subjects = {f.subject for f in response.findings}
+    assert subjects == {"SKU-1", "SKU-2"}
+
+
+def test_run_per_sku_finding_metric_value_is_the_next_period_forecast():
+    agent = DemandForecastingAgent()
+
+    response = agent.run(AgentQuery(text="forecast", context={"demand_history": _per_sku_demand_rows()}))
+
+    sku1 = next(f for f in response.findings if f.subject == "SKU-1")
+    assert sku1.metric_value is not None
+    assert sku1.metric_value > 0
+
+
+def test_run_flags_a_sku_with_a_recent_demand_spike_as_high_severity():
+    rows = _per_sku_demand_rows(months=6)
+    rows.append({"sku": "SKU-2", "order_date": date(2025, 6, 20), "quantity": 500})  # spike in the latest month
+    agent = DemandForecastingAgent()
+
+    response = agent.run(AgentQuery(text="forecast", context={"demand_history": rows}))
+
+    sku2 = next(f for f in response.findings if f.subject == "SKU-2")
+    assert sku2.severity in ("high", "critical")
+    assert "anomaly" in sku2.detail
+
+
+def test_run_honors_a_custom_sku_field_name():
+    rows = [{"product_id": "SKU-1", "order_date": date(2025, m, 5), "quantity": 100} for m in range(1, 7)]
+    agent = DemandForecastingAgent()
+
+    response = agent.run(
+        AgentQuery(text="forecast", context={"demand_history": rows, "sku_field": "product_id"})
+    )
+
+    assert response.status == "ok"
+    assert {f.subject for f in response.findings} == {"SKU-1"}
+
+
+def _per_category_demand_rows(months: int = 6) -> list[dict]:
+    rows = []
+    for m in range(1, months + 1):
+        rows.append({"category": "Electronics", "order_date": date(2025, m, 5), "quantity": 100 + m})
+        rows.append({"category": "Apparel", "order_date": date(2025, m, 10), "quantity": 10})
+    return rows
+
+
+def _per_region_demand_rows(months: int = 6) -> list[dict]:
+    rows = []
+    for m in range(1, months + 1):
+        rows.append({"region": "West", "order_date": date(2025, m, 5), "quantity": 100 + m})
+        rows.append({"region": "East", "order_date": date(2025, m, 10), "quantity": 10})
+    return rows
+
+
+def test_run_adds_one_finding_per_forecastable_category():
+    agent = DemandForecastingAgent()
+
+    response = agent.run(AgentQuery(text="forecast", context={"demand_history": _per_category_demand_rows()}))
+
+    assert response.status == "ok"
+    category_findings = [f for f in response.findings if f.subject_kind == "category"]
+    assert {f.subject for f in category_findings} == {"Electronics", "Apparel"}
+
+
+def test_run_adds_one_finding_per_forecastable_region():
+    agent = DemandForecastingAgent()
+
+    response = agent.run(AgentQuery(text="forecast", context={"demand_history": _per_region_demand_rows()}))
+
+    assert response.status == "ok"
+    region_findings = [f for f in response.findings if f.subject_kind == "region"]
+    assert {f.subject for f in region_findings} == {"West", "East"}
+
+
+def test_run_honors_custom_category_and_region_field_names():
+    rows = [
+        {"product_category": "Electronics", "sales_region": "West", "order_date": date(2025, m, 5), "quantity": 100}
+        for m in range(1, 7)
+    ]
+    agent = DemandForecastingAgent()
+
+    response = agent.run(
+        AgentQuery(
+            text="forecast",
+            context={"demand_history": rows, "category_field": "product_category", "region_field": "sales_region"},
+        )
+    )
+
+    assert response.status == "ok"
+    assert {f.subject for f in response.findings if f.subject_kind == "category"} == {"Electronics"}
+    assert {f.subject for f in response.findings if f.subject_kind == "region"} == {"West"}
+
+
+def test_run_combines_sku_category_and_region_findings_without_interfering():
+    rows = [
+        {"sku": "SKU-1", "category": "Electronics", "region": "West", "order_date": date(2025, m, 5), "quantity": 100}
+        for m in range(1, 7)
+    ]
+    agent = DemandForecastingAgent()
+
+    response = agent.run(AgentQuery(text="forecast", context={"demand_history": rows}))
+
+    assert response.status == "ok"
+    kinds = {f.subject_kind for f in response.findings}
+    assert kinds == {"sku", "category", "region"}
+    assert {f.subject for f in response.findings} == {"SKU-1", "Electronics", "West"}
+
+
+def test_run_findings_stays_empty_when_no_row_carries_category_or_region_fields():
+    agent = DemandForecastingAgent()
+
+    response = agent.run(AgentQuery(text="forecast", context={"demand_history": _demand_rows()}))
+
+    assert response.status == "ok"
+    assert not any(f.subject_kind in ("category", "region") for f in response.findings)
+
+
 def test_run_lets_an_unexpected_forecasting_error_propagate(monkeypatch):
     # The "forecasting API failure" path: a genuinely unexpected exception
     # (not one of the typed error paths this agent handles) is left to

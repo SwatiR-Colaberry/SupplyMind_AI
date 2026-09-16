@@ -20,6 +20,10 @@ def test_suggests_a_known_synonym_when_no_exact_name_matches():
         "safety_stock": "min_stock",
         "daily_demand_rate": "daily_use",
         "lead_time_days": "lead_days",
+        "incoming_stock": None,
+        "unit_price": None,
+        "demand_std_dev": None,
+        "supplier": None,
     }
 
 

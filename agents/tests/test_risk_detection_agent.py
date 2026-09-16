@@ -108,7 +108,7 @@ def test_run_findings_include_a_low_risk_sku_even_though_it_contributes_nothing_
     # agent to disagree with, and RecommendationAgent's conflict
     # detection would silently miss exactly that disagreement.
     agent = RiskDetectionAgent()
-    low_risk_row = _inventory_row(current_stock=100.0)  # 20 days of supply vs a 10-day lead time => "low"
+    low_risk_row = _inventory_row(current_stock=200.0)  # 40 days of supply, well past the 30-day "low" threshold
 
     response = agent.run(AgentQuery(text="detect risk", context={"inventory_rows": [low_risk_row]}))
 

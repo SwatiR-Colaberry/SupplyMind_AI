@@ -141,7 +141,7 @@ class ShipmentDelayAnalysisAgent:
         )
 
         findings = [
-            AgentFinding(subject=c.po_id, subject_kind="po", severity=c.severity, detail=c.detail)
+            AgentFinding(subject=c.po_id, subject_kind="po", severity=c.severity, detail=c.detail, metric_value=c.total_cost)
             for c in run.delay_costs
         ]
         return AgentResponse(

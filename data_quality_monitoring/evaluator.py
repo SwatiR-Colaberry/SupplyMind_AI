@@ -71,6 +71,7 @@ class DataQualityEvaluator:
         rows: list[dict[str, Any]],
         *,
         required_fields: tuple[str, ...],
+        numeric_fields: tuple[str, ...] = (),
         check_id: str | None = None,
     ) -> DataQualityCheckRun:
         check_id = check_id or str(uuid.uuid4())
@@ -84,7 +85,7 @@ class DataQualityEvaluator:
         )
 
         try:
-            report = assess_data_quality(rows, required_fields=required_fields)
+            report = assess_data_quality(rows, required_fields=required_fields, numeric_fields=numeric_fields)
         except Exception as exc:  # noqa: BLE001 - deliberate: see module docstring
             # Covers both the documented DataQualityError (a bad
             # parameter) and any genuinely unexpected bug in the

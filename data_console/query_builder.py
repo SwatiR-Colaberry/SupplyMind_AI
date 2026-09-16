@@ -30,8 +30,13 @@ from dataclasses import dataclass, field
 
 # Never widened by a caller - "millions of rows" must never reach a
 # browser tab regardless of what's selected, per this project's own
-# earlier design discussion on large live tables.
-PREVIEW_ROW_LIMIT = 500
+# earlier design discussion on large live tables. Lowered from 500 to 15
+# (2026-09-12) after a user pointed out 500 rendered as "showing all the
+# data" rather than a preview - a preview's job is to give a taste of the
+# shape of the data, not a near-complete dump; 15 rows still shows every
+# column with several examples of real values without needing to scroll
+# past a wall of rows to reach the mapping controls below it.
+PREVIEW_ROW_LIMIT = 15
 
 
 class InvalidSelectionError(ValueError):

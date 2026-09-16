@@ -95,6 +95,19 @@ def test_explore_chart_splits_by_subject_kind_when_one_agent_mixes_kinds():
     assert chart_ids == {"risk_detection_agent-period", "risk_detection_agent-po"}
 
 
+def test_explore_chart_title_singularizes_category_correctly():
+    # Regression: naively stripping a trailing "s" off "categories" gives
+    # "categorie", not "category" - the title must use a real singular.
+    findings = [AgentFinding(subject="Electronics", subject_kind="category", severity="medium", detail="demand up")]
+    snapshot = build_dashboard([_ok_result("demand_forecasting_agent", findings=findings)])
+
+    _, explore = build_chart_specs(snapshot)
+
+    chart = next(c for c in explore if c.chart_id == "demand_forecasting_agent-category")
+    assert chart.title == "Demand Forecast by category"
+    assert chart.question == "Which categories need attention in Demand Forecast?"
+
+
 def test_explore_chart_caps_bars_and_reports_the_omitted_count():
     findings = [
         AgentFinding(subject=f"SKU-{i}", subject_kind="sku", severity="low", detail="x") for i in range(20)

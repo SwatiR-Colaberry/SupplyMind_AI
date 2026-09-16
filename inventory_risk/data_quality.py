@@ -18,6 +18,17 @@ from typing import Any
 REQUIRED_FIELDS = ("sku", "current_stock", "safety_stock", "daily_demand_rate", "lead_time_days")
 NUMERIC_FIELDS = ("current_stock", "safety_stock", "daily_demand_rate", "lead_time_days")
 
+# Not required - each enables one extra InventoryPosition capability when
+# present (incoming_stock -> "expected inventory" accounts for confirmed
+# replenishment; unit_price -> revenue_at_risk; demand_std_dev ->
+# estimate_stockout_probability's statistical mode and a recommended
+# safety stock) but a row missing them, or carrying a bad value for one,
+# is still perfectly usable for the core risk assessment - so an invalid
+# optional value drops just that field (see _normalize_optional_fields
+# below), not the whole row into flagged_rows the way a bad required
+# field does.
+OPTIONAL_NUMERIC_FIELDS = ("incoming_stock", "unit_price", "demand_std_dev")
+
 
 @dataclass(frozen=True)
 class FlaggedRow:
@@ -76,6 +87,30 @@ def _row_issues(row: dict[str, Any]) -> list[str]:
     return issues
 
 
+def _normalize_optional_fields(row: dict[str, Any]) -> dict[str, Any]:
+    """Best-effort float normalization for whichever OPTIONAL_NUMERIC_FIELDS
+    are present and genuinely valid on this row - present-but-invalid (wrong
+    type, negative, NaN) is dropped silently rather than flagging the whole
+    row, since these fields are enhancements the core assessment doesn't
+    depend on (see OPTIONAL_NUMERIC_FIELDS's own docstring)."""
+    normalized: dict[str, Any] = {}
+    for field_name in OPTIONAL_NUMERIC_FIELDS:
+        value = row.get(field_name)
+        if value is None:
+            continue
+        if not isinstance(value, (int, float, Decimal)) or isinstance(value, bool):
+            continue
+        if isinstance(value, float) and math.isnan(value):
+            continue
+        if isinstance(value, Decimal) and value.is_nan():
+            continue
+        value = float(value)
+        if value < 0:
+            continue
+        normalized[field_name] = value
+    return normalized
+
+
 def assess_inventory_data_quality(rows: list[dict[str, Any]]) -> InventoryDataQualityReport:
     """Split raw inventory rows into clean vs. flagged-for-review, with reasons.
 
@@ -101,7 +136,8 @@ def assess_inventory_data_quality(rows: list[dict[str, Any]]) -> InventoryDataQu
             # mixes these values with plain float constants (e.g.
             # MEDIUM_COVERAGE_RATIO), and Decimal arithmetic against a
             # float raises TypeError rather than silently coercing.
-            clean_rows.append({**row, **{f: float(row[f]) for f in NUMERIC_FIELDS}})
+            base = {k: v for k, v in row.items() if k not in OPTIONAL_NUMERIC_FIELDS}
+            clean_rows.append({**base, **{f: float(row[f]) for f in NUMERIC_FIELDS}, **_normalize_optional_fields(row)})
 
     warnings: list[str] = []
     if not rows:

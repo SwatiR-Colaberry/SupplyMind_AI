@@ -11,13 +11,13 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 AgentResponseStatus = Literal["ok", "error"]
-FindingSubjectKind = Literal["sku", "po", "period", "supplier"]
+FindingSubjectKind = Literal["sku", "po", "period", "supplier", "category", "region"]
 FindingSeverity = Literal["low", "medium", "high", "critical"]
 
 # Literal isn't enforced at runtime, so validate_response() checks
 # membership against these explicitly - same reasoning it already applies
 # to AgentResponseStatus rather than trusting the type hint alone.
-_VALID_SUBJECT_KINDS = {"sku", "po", "period", "supplier"}
+_VALID_SUBJECT_KINDS = {"sku", "po", "period", "supplier", "category", "region"}
 _VALID_SEVERITIES = {"low", "medium", "high", "critical"}
 
 
@@ -35,8 +35,8 @@ class AgentFinding:
     line up findings from different agents that concern the same
     subject (e.g. the same SKU) and detect precise disagreement, instead
     of only being able to compare agents' free-text recommendations.
-    Optional - an agent with no natural per-subject breakdown (e.g.
-    DemandForecastingAgent, which only forecasts an aggregate total) has
+    Optional - an agent with no natural per-subject breakdown available
+    (e.g. no per-item grouping field is present in its input data) has
     nothing to add here and leaves AgentResponse.findings empty.
     """
 
@@ -44,6 +44,28 @@ class AgentFinding:
     subject_kind: FindingSubjectKind
     severity: FindingSeverity
     detail: str
+    # This finding's own numeric magnitude, in whatever unit the source
+    # agent's domain uses (e.g. stockout_risk_agent's revenue-at-risk
+    # dollars, shipment_delay_analysis_agent's delay-cost dollars) - None
+    # when a finding has no single natural number (most agents' findings
+    # don't). Deliberately generic/unitless at this contract layer, same
+    # as `detail` - a consumer that wants to aggregate one specific
+    # agent's metric_value across findings (e.g. dashboard/metrics.py's
+    # KPI summary) already has to know that agent's own meaning for it,
+    # the same way it already has to know which metric_id maps to which
+    # tile label.
+    metric_value: float | None = None
+    # Which supplier this finding's subject is sourced from, when known -
+    # e.g. stockout_risk_agent sets this from an inventory row's optional
+    # "supplier" column. None whenever that link isn't mapped (the common
+    # case until a caller maps it), or for a finding that already *is*
+    # about a supplier (subject_kind="supplier" - see
+    # supplier_evaluation_agent, which leaves this unset since its own
+    # `subject` already names the supplier). Exists specifically so a
+    # cross-agent consumer (delivery_intelligence/narrative.py) can join
+    # one agent's per-SKU findings back to another agent's per-supplier
+    # findings without either agent needing to know about the other.
+    supplier: str | None = None
 
 
 @dataclass(frozen=True)

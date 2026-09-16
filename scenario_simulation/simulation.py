@@ -77,6 +77,14 @@ def _apply_deltas(scenario: ScenarioInput) -> InventoryPosition:
         safety_stock=baseline.safety_stock + scenario.safety_stock_change,
         daily_demand_rate=baseline.daily_demand_rate * (1.0 + scenario.demand_change_pct),
         lead_time_days=baseline.lead_time_days + scenario.lead_time_change_days,
+        # No delta field exists for these yet (no "what if incoming stock
+        # changes" lever) - carried through unchanged from the baseline so
+        # a priced/variability-aware baseline doesn't silently lose
+        # revenue_at_risk/recommended_safety_stock/the statistical
+        # stockout_probability mode on its *projected* side only.
+        incoming_stock=baseline.incoming_stock,
+        unit_price=baseline.unit_price,
+        demand_std_dev=baseline.demand_std_dev,
     )
 
 

@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any
 
 import root_cause
-from agents.contracts import AgentQuery, AgentResponse
+from agents.contracts import AgentFinding, AgentQuery, AgentResponse
 from agents.logging_setup import get_logger
 from forecasting.aggregation import AggregationError, aggregate_monthly_demand
 from risk_detection.anomaly_detection import (
@@ -65,7 +65,7 @@ from risk_detection.anomaly_detection import (
     detect_demand_spikes,
     detect_supplier_delays,
 )
-from root_cause.analysis import Issue
+from root_cause.analysis import CausalStep, Issue, RootCauseChain, build_causal_chain, describe_chain
 from root_cause.audit_trail import RootCauseAuditStore
 from root_cause.evaluator import RootCauseAnalysisRun, RootCauseEvaluator
 from supplier_evaluation.reliability import SupplierEvaluationError, SupplierRiskScore, evaluate_supplier_reliability
@@ -150,6 +150,8 @@ class RootCauseAnalysisAgent:
                 run.crash_error or "root cause analysis failed", error_class="RootCauseAnalysisError"
             )
 
+        chain = build_causal_chain(run.analysis, demand_anomalies=demand_anomalies, supplier_delays=supplier_delays)
+
         notes = demand_notes + delay_notes + score_notes
         logger.info(
             "root_cause_analysis_agent_completed",
@@ -161,14 +163,16 @@ class RootCauseAnalysisAgent:
                     "subject": issue.subject,
                     "confidence": run.analysis.confidence,
                     "candidate_count": len(run.analysis.candidates),
+                    "chain_steps": len(chain.steps),
                 },
             },
         )
         return AgentResponse(
             agent_name=self.name,
             status="ok",
-            recommendation=self._format_recommendation(run, notes),
+            recommendation=self._format_recommendation(run, chain, notes),
             confidence=run.analysis.confidence,
+            findings=self._chain_findings(chain),
         )
 
     def _detect_demand_anomalies(self, context: dict[str, Any]) -> tuple[list[DemandAnomaly], list[str]]:
@@ -248,20 +252,55 @@ class RootCauseAnalysisAgent:
         return AgentResponse(agent_name=self.name, status="error", error=message)
 
     @staticmethod
-    def _format_recommendation(run: RootCauseAnalysisRun, notes: list[str]) -> str:
+    def _format_recommendation(run: RootCauseAnalysisRun, chain: RootCauseChain, notes: list[str]) -> str:
         analysis = run.analysis
         assert analysis is not None  # only called when run.outcome == "success"
         if not analysis.candidates:
             summary = f"Root cause analysis of {analysis.issue.subject_kind} {analysis.issue.subject}: {analysis.note}"
         else:
+            summary = f"Root cause analysis of {analysis.issue.subject_kind} {analysis.issue.subject}: {describe_chain(chain)}"
             top = analysis.candidates[0]
-            summary = (
-                f"Root cause analysis of {analysis.issue.subject_kind} {analysis.issue.subject}: "
-                f"most likely cause is {top.cause} ({top.detail}), confidence {top.confidence:.2f}"
-            )
+            summary += f" (confidence {top.confidence:.2f})"
             if len(analysis.candidates) > 1:
                 others = ", ".join(f"{c.cause} ({c.confidence:.2f})" for c in analysis.candidates[1:])
                 summary += f" | other candidate(s): {others}"
         if notes:
             summary += " | Data quality notes: " + "; ".join(notes)
         return summary
+
+    # CausalStep.cause -> the FindingSubjectKind that step's own subject
+    # actually is (a demand_spike's subject is a period, a supplier_delay's
+    # is a PO, a supplier_reliability's is the supplier itself).
+    _CHAIN_SUBJECT_KIND: dict[str, str] = {
+        "demand_spike": "period",
+        "supplier_delay": "po",
+        "supplier_reliability": "supplier",
+    }
+
+    @staticmethod
+    def _step_severity(step: CausalStep) -> str:
+        if step.confidence >= 0.8:
+            return "critical"
+        if step.confidence >= 0.65:
+            return "high"
+        if step.confidence >= 0.5:
+            return "medium"
+        return "low"
+
+    @classmethod
+    def _chain_findings(cls, chain: RootCauseChain) -> list[AgentFinding]:
+        """One AgentFinding per causal step (excluding the terminal "issue"
+        step, which describes the thing being investigated, not a
+        contributing cause) - lets the dashboard's existing per-subject
+        chart machinery (dashboard/charts.py) surface a causal chain's
+        individual links the same way it already does for any other
+        agent's findings, with no changes needed there."""
+        return [
+            AgentFinding(
+                subject=step.subject,
+                subject_kind=cls._CHAIN_SUBJECT_KIND.get(step.cause, "supplier"),
+                severity=cls._step_severity(step),
+                detail=step.detail,
+            )
+            for step in chain.steps[:-1]
+        ]

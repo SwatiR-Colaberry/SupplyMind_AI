@@ -1,7 +1,13 @@
 import pytest
 
 from risk_detection.anomaly_detection import DemandAnomaly, SupplierDelayAnomaly
-from root_cause.analysis import Issue, RootCauseAnalysisError, analyze_root_cause
+from root_cause.analysis import (
+    Issue,
+    RootCauseAnalysisError,
+    analyze_root_cause,
+    build_causal_chain,
+    describe_chain,
+)
 from supplier_evaluation.reliability import SupplierRiskScore, SupplierReliabilityMetrics
 
 
@@ -196,3 +202,86 @@ def test_supplier_reliability_candidate_picks_the_most_severe_of_several_scores(
     result = analyze_root_cause(issue, supplier_scores=scores)
 
     assert result.confidence == pytest.approx(0.85)
+
+
+# --- causal chains -------------------------------------------------
+
+
+def test_chain_links_a_demand_spike_to_a_supplier_delay_when_the_spike_precedes_it():
+    # The delay's expected_date is 2025-01-01; a spike in 2024-12 (1 month
+    # earlier) falls inside the default antecedent window.
+    issue = Issue(subject="SKU-1", subject_kind="sku", supplier="Acme")
+    delays = [_supplier_delay("PO-1", "Acme")]
+    spikes = [_demand_anomaly("2024-12")]
+    analysis = analyze_root_cause(issue, demand_anomalies=spikes, supplier_delays=delays)
+
+    chain = build_causal_chain(analysis, demand_anomalies=spikes, supplier_delays=delays)
+
+    assert [step.cause for step in chain.steps] == ["demand_spike", "supplier_delay", "issue"]
+    assert chain.steps[0].subject == "2024-12"
+    assert chain.steps[1].subject == "PO-1"
+    assert chain.confidence == pytest.approx(0.85)  # weakest of the two non-issue links
+
+
+def test_chain_does_not_link_a_demand_spike_that_is_too_far_before_the_delay():
+    issue = Issue(subject="SKU-1", subject_kind="sku", supplier="Acme")
+    delays = [_supplier_delay("PO-1", "Acme")]  # expected_date 2025-01-01
+    distant_spike = [_demand_anomaly("2024-01")]  # 12 months earlier - outside the window
+    analysis = analyze_root_cause(issue, demand_anomalies=distant_spike, supplier_delays=delays)
+
+    chain = build_causal_chain(analysis, demand_anomalies=distant_spike, supplier_delays=delays)
+
+    assert [step.cause for step in chain.steps] == ["supplier_delay", "issue"]
+
+
+def test_chain_does_not_link_a_demand_spike_that_comes_after_the_delay():
+    issue = Issue(subject="SKU-1", subject_kind="sku", supplier="Acme")
+    delays = [_supplier_delay("PO-1", "Acme")]  # expected_date 2025-01-01
+    later_spike = [_demand_anomaly("2025-03")]
+    analysis = analyze_root_cause(issue, demand_anomalies=later_spike, supplier_delays=delays)
+
+    chain = build_causal_chain(analysis, demand_anomalies=later_spike, supplier_delays=delays)
+
+    assert [step.cause for step in chain.steps] == ["supplier_delay", "issue"]
+
+
+def test_chain_is_a_single_step_for_a_demand_spike_only_candidate():
+    issue = Issue(subject="SKU-1", subject_kind="sku", as_of_period="2025-04")
+    spikes = [_demand_anomaly("2025-04")]
+    analysis = analyze_root_cause(issue, demand_anomalies=spikes)
+
+    chain = build_causal_chain(analysis, demand_anomalies=spikes)
+
+    assert [step.cause for step in chain.steps] == ["demand_spike", "issue"]
+
+
+def test_chain_with_no_candidates_is_just_the_issue_step_with_zero_confidence():
+    issue = Issue(subject="SKU-1", subject_kind="sku", supplier="Globex")
+    analysis = analyze_root_cause(issue, supplier_scores=[_supplier_score("Acme")])  # different supplier, no match
+
+    chain = build_causal_chain(analysis)
+
+    assert [step.cause for step in chain.steps] == ["issue"]
+    assert chain.confidence == 0.0
+
+
+def test_describe_chain_renders_the_products_own_example_shape():
+    issue = Issue(subject="SKU-1", subject_kind="sku", supplier="Acme")
+    delays = [_supplier_delay("PO-1", "Acme")]
+    spikes = [_demand_anomaly("2024-12")]
+    analysis = analyze_root_cause(issue, demand_anomalies=spikes, supplier_delays=delays)
+    chain = build_causal_chain(analysis, demand_anomalies=spikes, supplier_delays=delays)
+
+    narrative = describe_chain(chain)
+
+    assert narrative == "Demand ↑ (2024-12) → Supplier delay ↑ (PO-1) → Stockout risk ↑ (SKU-1)"
+
+
+def test_describe_chain_uses_the_issues_own_subject_kind_when_not_a_sku():
+    issue = Issue(subject="Acme", subject_kind="supplier")
+    analysis = analyze_root_cause(issue, supplier_scores=[_supplier_score("Acme")])
+    chain = build_causal_chain(analysis)
+
+    narrative = describe_chain(chain)
+
+    assert narrative.endswith("Supplier risk ↑ (Acme)")

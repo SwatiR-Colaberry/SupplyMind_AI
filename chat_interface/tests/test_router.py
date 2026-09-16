@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from chat_interface.router import TOPIC_DESCRIPTIONS, classify_query
+from chat_interface.router import TOPIC_DESCRIPTIONS, classify_query, find_mentioned_subject
 
 
 @pytest.mark.parametrize(
@@ -13,6 +13,8 @@ from chat_interface.router import TOPIC_DESCRIPTIONS, classify_query
         ("How reliable is our supplier Acme Freight?", "supplier_evaluation_agent"),
         ("Which shipments are delayed?", "shipment_delay_analysis_agent"),
         ("How's our data quality looking?", "data_quality_monitoring_agent"),
+        ("Give me a delivery intelligence summary", "delivery_intelligence_agent"),
+        ("Which products at risk from our supplier issues?", "delivery_intelligence_agent"),
         ("What do you recommend we do?", "recommendation_agent"),
         ("Any anomalies or risk in the supply chain?", "risk_detection_agent"),
     ],
@@ -68,6 +70,48 @@ def test_classify_query_returns_none_for_unsupported_query() -> None:
 @pytest.mark.parametrize("blank", ["", "   ", None])
 def test_classify_query_returns_none_for_blank_query(blank) -> None:
     assert classify_query(blank) is None
+
+
+def test_find_mentioned_subject_matches_a_named_sku() -> None:
+    assert find_mentioned_subject("why is SKU-1 at risk?", {"SKU-1", "SKU-2"}) == "SKU-1"
+
+
+def test_find_mentioned_subject_is_case_insensitive() -> None:
+    assert find_mentioned_subject("WHY IS sku-1 AT RISK?", {"SKU-1"}) == "SKU-1"
+
+
+def test_find_mentioned_subject_does_not_match_a_longer_similar_subject() -> None:
+    # Regression guard: naive substring containment would let "SKU-1" match
+    # inside "SKU-10" - word-boundary anchoring must prevent that.
+    assert find_mentioned_subject("what about SKU-10?", {"SKU-1", "SKU-10"}) == "SKU-10"
+    assert find_mentioned_subject("what about SKU-1?", {"SKU-1", "SKU-10"}) == "SKU-1"
+
+
+def test_find_mentioned_subject_returns_none_when_no_subject_is_named() -> None:
+    assert find_mentioned_subject("what's our stockout risk?", {"SKU-1", "SKU-2"}) is None
+
+
+def test_find_mentioned_subject_returns_none_for_blank_query() -> None:
+    assert find_mentioned_subject("   ", {"SKU-1"}) is None
+
+
+def test_find_mentioned_subject_returns_none_for_empty_subjects() -> None:
+    assert find_mentioned_subject("why is SKU-1 at risk?", set()) is None
+
+
+def test_find_mentioned_subject_prefers_the_longer_subject_when_one_contains_the_other() -> None:
+    # Regression: a shorter subject can be a genuine substring of a longer
+    # one at a real word boundary ("Acme" inside "Acme Freight") - this
+    # must resolve to the longer, more specific subject, not read as an
+    # ambiguity between two "different" subjects.
+    assert find_mentioned_subject("tell me about Acme Freight", {"Acme", "Acme Freight"}) == "Acme Freight"
+    assert find_mentioned_subject("tell me about Acme", {"Acme", "Acme Freight"}) == "Acme"
+
+
+def test_find_mentioned_subject_returns_none_when_two_distinct_subjects_are_named() -> None:
+    # A genuine ambiguity - same "honest unsupported answer over a guess"
+    # principle classify_query() already applies to a cross-topic tie.
+    assert find_mentioned_subject("compare SKU-1 and SKU-2", {"SKU-1", "SKU-2"}) is None
 
 
 def test_topic_descriptions_cover_every_classifiable_topic() -> None:

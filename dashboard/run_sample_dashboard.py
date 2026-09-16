@@ -14,25 +14,29 @@ it to a self-contained HTML "control tower" page.
 
 Three scenarios are printed and each renders its own HTML file:
 
-1. "real_data" - for each of the 3 datasets, prefers whatever data_console
-   (the local mapping tool at data_console/serve_data_console.py) has
-   saved a mapping for - a live Postgres table/query, an uploaded CSV, or
-   a Google Sheet, however that tenant actually connected it - and falls
+1. "real_data" - see dashboard/live_refresh.py's refresh_real_data_dashboard()
+   docstring, which this script's main() now just calls: for each of the 3
+   datasets, prefers whatever data_console (the local mapping tool at
+   data_console/serve_data_console.py) has saved a mapping for - a live
+   Postgres table/query, an uploaded CSV, or a Google Sheet - and falls
    back to this module's own hardcoded DATASETS pull via STORY-011's
    audited run_integration_with_audit() only for a dataset data_console
-   has no mapping for at all. See _dataset_result_from_data_console()
-   below. With nothing mapped and no credentials configured, every
-   stage-1 dataset pull fails and the dashboard comes out "degraded" (see
-   the "partial_failure" scenario below for why AC2 no longer depends on
-   this happening to be true). Against a real, populated source, every
-   stage-1 agent succeeds and the dashboard comes out "ok" with real
-   findings (critical stockout risk, a demand spike, a late delivery -
-   whatever the source actually contains). All outcomes are legitimate
-   and this scenario reports honestly whichever one the environment
-   produces - its own success bar is just "the pipeline ran end-to-end
-   and produced tiles," never a specific overall_status, since asserting
-   a specific status here would be asserting a fact about the
-   environment this script does not control.
+   has no mapping for at all. With nothing mapped and no credentials
+   configured, every stage-1 dataset pull fails and the dashboard comes
+   out "degraded" (see the "partial_failure" scenario below for why AC2 no
+   longer depends on this happening to be true). Against a real, populated
+   source, every stage-1 agent succeeds and the dashboard comes out "ok"
+   with real findings (critical stockout risk, a demand spike, a late
+   delivery - whatever the source actually contains). All outcomes are
+   legitimate and this scenario reports honestly whichever one the
+   environment produces - its own success bar is just "the pipeline ran
+   end-to-end and produced tiles," never a specific overall_status, since
+   asserting a specific status here would be asserting a fact about the
+   environment this script does not control. The same regeneration also
+   runs on demand from data_console's own "Run Analysis" button
+   (data_console/serve_data_console.py's /api/run-analysis route) - both
+   entry points call the identical dashboard.live_refresh function so
+   neither can drift from the other.
 2. "partial_failure" - a synthetic, environment-independent scenario:
    inventory data only, no demand history or delivery records. This
    deterministically leaves DemandForecastingAgent/
@@ -74,56 +78,15 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
 import sys
-from pathlib import Path
 
-import dashboard
-import data_integration
-from agents.contracts import AgentQuery, AgentResponse
-from agents.data_quality_monitoring_agent import DataQualityMonitoringAgent
-from agents.demand_forecasting_agent import DemandForecastingAgent
-from agents.orchestrator import CoordinationResult, Orchestrator
-from agents.recommendation_agent import RecommendationAgent
-from agents.risk_detection_agent import RiskDetectionAgent
-from agents.shipment_delay_analysis_agent import ShipmentDelayAnalysisAgent
-from agents.stockout_risk_agent import StockoutRiskAgent
-from agents.supplier_evaluation_agent import SupplierEvaluationAgent
-from dashboard.audit_trail import DashboardAuditStore
-from dashboard.data_freshness import build_data_freshness
-from dashboard.evaluator import DashboardBuildRun, DashboardEvaluator
-from dashboard.render import render_dashboard_html
-from data_console.file_store import UnknownUploadError
-from data_console.mapping_service import preview_mapping
-from data_console.mapping_store import MappingStore
-from data_console.serve_data_console import DEFAULT_PORT as _DATA_CONSOLE_DEFAULT_PORT
-from data_console.sheet_fetcher import InvalidSheetUrlError, SheetFetchError
-from data_integration.audit_trail import AuditStore
-from data_integration.config import MissingConfigError
-from data_integration.connection_profile import SchemaMappingError
-from data_integration.orchestrator import (
-    DatasetResult,
-    PostgresDataset,
-    available_for_analysis,
-    run_integration_with_audit,
+from dashboard.live_refresh import (  # noqa: F401 - DATASETS re-exported for chat_interface/run_sample_chat_interface.py
+    DATASETS,
+    _build_dashboard,
+    _summarize,
+    refresh_real_data_dashboard,
 )
-from data_integration.postgres_connector import PostgresIntegrationError
-
-DATASETS = [
-    PostgresDataset(name="customer_orders", query="SELECT * FROM customer_orders LIMIT 500"),
-    PostgresDataset(
-        name="delivery_records",
-        query="SELECT po_id, supplier, expected_date, actual_date FROM delivery_records LIMIT 500",
-    ),
-    PostgresDataset(
-        name="inventory",
-        query="SELECT sku, current_stock, safety_stock, daily_demand_rate, lead_time_days FROM inventory LIMIT 500",
-    ),
-]
-
-DEFAULT_AUDIT_LOG_PATH = Path(data_integration.__file__).resolve().parent / "audit_log.jsonl"
-DEFAULT_DASHBOARD_AUDIT_LOG_PATH = Path(dashboard.__file__).resolve().parent / "dashboard_audit_log.jsonl"
-DEFAULT_HTML_DIR = Path(dashboard.__file__).resolve().parent
+from data_integration.orchestrator import DatasetResult
 
 # 8 months of steady demand (>= forecasting/data_quality.py's
 # MIN_RECOMMENDED_POINTS=6, so the forecast doesn't carry a low-confidence
@@ -152,178 +115,12 @@ SYNTHETIC_DELIVERY_ROWS = [
 ]
 
 # Two well-stocked SKUs - days_of_supply comfortably above
-# inventory_risk/risk_model.py's MEDIUM_COVERAGE_RATIO (1.5x lead time),
-# so both read "low" stockout risk.
+# inventory_risk/risk_model.py's MEDIUM_DAYS_THRESHOLD (30 days), so both
+# read "low" stockout risk.
 SYNTHETIC_INVENTORY_ROWS = [
-    {"sku": "SKU-100", "current_stock": 300.0, "safety_stock": 50.0, "daily_demand_rate": 10.0, "lead_time_days": 7.0},
-    {"sku": "SKU-200", "current_stock": 450.0, "safety_stock": 80.0, "daily_demand_rate": 15.0, "lead_time_days": 7.0},
+    {"sku": "SKU-100", "current_stock": 400.0, "safety_stock": 50.0, "daily_demand_rate": 10.0, "lead_time_days": 7.0},
+    {"sku": "SKU-200", "current_stock": 600.0, "safety_stock": 80.0, "daily_demand_rate": 15.0, "lead_time_days": 7.0},
 ]
-
-
-def _audit_store() -> AuditStore:
-    path = os.environ.get("SUPPLYMIND_AUDIT_LOG_PATH", str(DEFAULT_AUDIT_LOG_PATH))
-    return AuditStore(path)
-
-
-def _dashboard_audit_store() -> DashboardAuditStore:
-    path = os.environ.get("SUPPLYMIND_DASHBOARD_AUDIT_LOG_PATH", str(DEFAULT_DASHBOARD_AUDIT_LOG_PATH))
-    return DashboardAuditStore(path)
-
-
-def _stage1_results(context: dict) -> list[CoordinationResult]:
-    stage1 = Orchestrator(
-        [
-            DemandForecastingAgent(),
-            StockoutRiskAgent(),
-            RiskDetectionAgent(),
-            SupplierEvaluationAgent(),
-            ShipmentDelayAnalysisAgent(),
-            DataQualityMonitoringAgent(),
-        ]
-    )
-    return stage1.coordinate(AgentQuery(text="analyze supply chain", context=context)).results
-
-
-def _stage2_results(stage1_results: list[CoordinationResult]) -> list[CoordinationResult]:
-    agent_outputs: list[AgentResponse] = [r.response for r in stage1_results if r.response is not None]
-    stage2 = Orchestrator([RecommendationAgent()])
-    run = stage2.coordinate(AgentQuery(text="generate recommendations", context={"agent_outputs": agent_outputs}))
-    return run.results
-
-
-# Plain-English label per scenario, and the fixed page order every
-# rendered page's nav bar shows - so opening any one of the 3 files feels
-# like navigating one application with three views, not three unrelated
-# files that happen to live in the same folder. "real_data" is the only
-# one an actual user's own connected data ever appears in; the other two
-# are this story's own fixed acceptance-criteria demonstrations, labeled
-# "Demo:" so that distinction is never ambiguous from the tab bar alone.
-_SCENARIO_LABELS = {
-    "real_data": "Live Data",
-    "partial_failure": "Demo: Partial Data",
-    "synthetic_healthy": "Demo: Healthy Example",
-}
-_SCENARIO_ORDER = ["real_data", "partial_failure", "synthetic_healthy"]
-
-# data_console/serve_data_console.py can serve these same 3 files itself
-# (at /dashboard/control_tower_<scenario>.html, reading the same files this
-# script writes) so that a single running server is "the app" and this link
-# and that route are two ends of the same connection - but a statically
-# generated page can't know at write-time whether it is being opened
-# straight from disk or through that server, so this always links to the
-# server's own root. Respects SUPPLYMIND_DATA_CONSOLE_PORT the same way
-# data_console.serve_data_console.main() does, so the link still resolves
-# if that server wasn't started on its default port.
-_DATA_CONSOLE_URL = f"http://127.0.0.1:{os.environ.get('SUPPLYMIND_DATA_CONSOLE_PORT', _DATA_CONSOLE_DEFAULT_PORT)}/"
-
-
-def _nav_links(current_scenario: str) -> list[tuple[str, str | None]]:
-    return [("Data Console", _DATA_CONSOLE_URL)] + [
-        (_SCENARIO_LABELS[s], None if s == current_scenario else f"control_tower_{s}.html")
-        for s in _SCENARIO_ORDER
-    ]
-
-
-def _build_dashboard(scenario: str, context: dict, dataset_results: list[DatasetResult]) -> tuple[DashboardBuildRun, Path | None]:
-    stage1_results = _stage1_results(context)
-    stage2_results = _stage2_results(stage1_results)
-    freshness = build_data_freshness(dataset_results)
-
-    evaluator = DashboardEvaluator(_dashboard_audit_store())
-    run = evaluator.run(stage1_results + stage2_results, dashboard_id=scenario, data_freshness=freshness)
-
-    html_path = None
-    if run.snapshot is not None:
-        html_path = DEFAULT_HTML_DIR / f"control_tower_{scenario}.html"
-        html = render_dashboard_html(run.snapshot, nav_links=_nav_links(scenario), subtitle=_SCENARIO_LABELS[scenario])
-        html_path.write_text(html, encoding="utf-8")
-
-    return run, html_path
-
-
-def _summarize(scenario: str, run: DashboardBuildRun, html_path: Path | None) -> dict:
-    snapshot = run.snapshot
-    summary = {
-        "scenario": scenario,
-        "build_outcome": run.outcome,
-        "crash_error": run.crash_error,
-        "overall_status": None,
-        "notification": None,
-        "tiles": [],
-        "data_sources": [],
-        "total_critical_findings": None,
-        "total_high_findings": None,
-        "html_path": str(html_path) if html_path else None,
-    }
-    if snapshot is not None:
-        summary.update(
-            overall_status=snapshot.overall_status,
-            notification=snapshot.notification,
-            tiles=[{"metric_id": m.metric_id, "status": m.status, "severity": m.severity} for m in snapshot.metrics],
-            data_sources=[{"dataset": e.dataset, "outcome": e.outcome} for e in snapshot.data_freshness],
-            total_critical_findings=snapshot.total_critical_findings,
-            total_high_findings=snapshot.total_high_findings,
-        )
-    return summary
-
-
-# data_console/mapping_store.DatasetMapping.source_kind -> the DatasetResult
-# source_type label this repo already uses for the same kind of pull
-# elsewhere (file_mapping_service.py's own audit records use "csv_upload";
-# a table/query mapping is a live Postgres pull either way).
-_SOURCE_TYPE_BY_MAPPING_KIND = {"table": "postgresql", "query": "postgresql", "file": "csv_upload", "sheet": "google_sheets"}
-
-
-def _dataset_result_from_data_console(dataset_kind: str) -> DatasetResult | None:
-    """Sources one dataset from data_console's own saved mapping - a live
-    table/query, an uploaded CSV, or a Google Sheet, however that tenant
-    actually connected it - via the same preview_mapping() the console's own
-    "Preview" button calls (capped at PREVIEW_ROW_LIMIT rows, the same cap
-    this module's own hardcoded DATASETS queries already use).
-
-    Returns None when data_console has no mapping at all for this dataset,
-    so the caller falls back to the hardcoded DATASETS pull below - a
-    dataset never onboarded through data_console keeps working exactly as
-    before. A mapping explicitly marked "unavailable" is reported as a
-    failure rather than None: falling back to the hardcoded query would
-    contradict what the tenant already told data_console.
-    """
-    mapping = MappingStore().get(dataset_kind)
-    if mapping is None:
-        return None
-    source_type = _SOURCE_TYPE_BY_MAPPING_KIND.get(mapping.source_kind, "postgresql")
-    if mapping.status == "unavailable":
-        return DatasetResult(name=dataset_kind, source_type=source_type, outcome="failure", error="marked unavailable in data_console")
-    try:
-        result = preview_mapping(dataset_kind)
-    except (
-        SchemaMappingError,
-        MissingConfigError,
-        PostgresIntegrationError,
-        UnknownUploadError,
-        InvalidSheetUrlError,
-        SheetFetchError,
-    ) as exc:
-        return DatasetResult(name=dataset_kind, source_type=source_type, outcome="failure", error=str(exc))
-    return DatasetResult(name=dataset_kind, source_type=source_type, outcome="success", rows=result.rows)
-
-
-def _real_data_scenario() -> dict:
-    mapped_results = {d.name: _dataset_result_from_data_console(d.name) for d in DATASETS}
-    unmapped_datasets = [d for d in DATASETS if mapped_results[d.name] is None]
-    legacy_results = {r.name: r for r in run_integration_with_audit(unmapped_datasets, _audit_store())}
-    dataset_results = [
-        mapped_results[d.name] if mapped_results[d.name] is not None else legacy_results[d.name] for d in DATASETS
-    ]
-
-    analysis_ready = available_for_analysis(dataset_results)
-    context = {
-        "demand_history": analysis_ready.get("customer_orders", []),
-        "delivery_rows": analysis_ready.get("delivery_records", []),
-        "inventory_rows": analysis_ready.get("inventory", []),
-    }
-    run, html_path = _build_dashboard("real_data", context, dataset_results)
-    return _summarize("real_data", run, html_path)
 
 
 def _partial_failure_scenario() -> dict:
@@ -365,7 +162,7 @@ def _synthetic_healthy_scenario() -> dict:
 
 
 def main() -> int:
-    scenarios = [_real_data_scenario(), _partial_failure_scenario(), _synthetic_healthy_scenario()]
+    scenarios = [refresh_real_data_dashboard(), _partial_failure_scenario(), _synthetic_healthy_scenario()]
     print(json.dumps(scenarios, indent=2))
 
     real_data, partial_failure, synthetic = scenarios

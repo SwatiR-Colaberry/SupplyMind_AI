@@ -82,6 +82,7 @@ import chat_interface
 import data_integration
 from agents.contracts import AgentQuery, AgentResponse
 from agents.data_quality_monitoring_agent import DataQualityMonitoringAgent
+from agents.delivery_intelligence_agent import DeliveryIntelligenceAgent
 from agents.demand_forecasting_agent import DemandForecastingAgent
 from agents.orchestrator import CoordinationResult, Orchestrator
 from agents.recommendation_agent import RecommendationAgent
@@ -130,10 +131,26 @@ def _stage1_results(context: dict) -> list[CoordinationResult]:
 
 
 def _stage2_results(stage1_results: list[CoordinationResult]) -> list[CoordinationResult]:
-    agent_outputs: list[AgentResponse] = [r.response for r in stage1_results if r.response is not None]
-    stage2 = Orchestrator([RecommendationAgent()])
-    run = stage2.coordinate(AgentQuery(text="generate recommendations", context={"agent_outputs": agent_outputs}))
-    return run.results
+    # Mirrors dashboard/live_refresh.py's own _stage2_results() exactly -
+    # DeliveryIntelligenceAgent runs first, over stage-1's own outputs, so
+    # its cross-agent narrative (if any) is itself one more output
+    # RecommendationAgent's synthesis sees.
+    stage1_outputs: list[AgentResponse] = [r.response for r in stage1_results if r.response is not None]
+
+    delivery_intelligence = Orchestrator([DeliveryIntelligenceAgent()])
+    delivery_intelligence_run = delivery_intelligence.coordinate(
+        AgentQuery(text="correlate delivery intelligence", context={"agent_outputs": stage1_outputs})
+    )
+
+    recommendation_inputs = stage1_outputs + [
+        r.response for r in delivery_intelligence_run.results if r.response is not None
+    ]
+    recommendation = Orchestrator([RecommendationAgent()])
+    recommendation_run = recommendation.coordinate(
+        AgentQuery(text="generate recommendations", context={"agent_outputs": recommendation_inputs})
+    )
+
+    return delivery_intelligence_run.results + recommendation_run.results
 
 
 def _build_snapshot(dashboard_id: str, context: dict) -> DashboardSnapshot:

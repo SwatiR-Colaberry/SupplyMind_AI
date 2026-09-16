@@ -41,6 +41,9 @@ from string import Template
 from typing import Callable
 from urllib.parse import unquote
 
+from local_apps import theme
+from dashboard.live_refresh import approval_store, refresh_real_data_dashboard
+
 from data_console import schema_inspector
 from data_console.column_requirements import ALL_DATASETS, BY_NAME, ColumnRequirement, DatasetRequirements
 from data_console.file_mapping_service import probe_upload_columns, save_mapping_from_file
@@ -130,68 +133,32 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
 <head>
 <meta charset="utf-8">
 <title>Data Console</title>
+$google_font_links
 <style>
-  :root {
-    --ink: #131826;
-    --ink-soft: #4a5468;
-    --ink-faint: #8891a1;
-    --surface: #ffffff;
-    --canvas: #f2f4f8;
-    --border: #e1e5ec;
-    --border-soft: #edeff3;
-    --brand: #1d4ed8;
-    --brand-dark: #1638a6;
-    --brand-tint: #eaf0fd;
-    --success: #0f7b52;
-    --success-tint: #e6f4ec;
-    --warning: #a85c00;
-    --warning-tint: #fbf0dd;
-    --neutral: #5f6673;
-    --neutral-tint: #eef0f3;
-    --danger: #9a2b1e;
-    --danger-tint: #fdecea;
-    --danger-border: #f3c6c1;
-    --shadow: 0 1px 2px rgba(19, 24, 38, 0.05), 0 1px 8px rgba(19, 24, 38, 0.04);
-  }
-  * { box-sizing: border-box; }
-  body {
-    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: var(--canvas); color: var(--ink); margin: 0;
-    -webkit-font-smoothing: antialiased;
-  }
+$theme_tokens
   .page { max-width: 1180px; margin: 0 auto; padding: 32px 32px 56px; }
   .kicker {
-    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    display: inline-block; font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--brand); background: var(--brand-tint); padding: 3px 10px; border-radius: 100px; margin-bottom: 10px;
   }
-  h1 { font-size: 25px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 4px; }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 4px; }
   h2 {
-    font-size: 12px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
+    font-size: 13.5px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
     color: var(--ink-soft); margin: 0 0 12px;
   }
-  h3 { font-size: 15px; font-weight: 600; margin: 0; color: var(--ink); }
+  h3 { font-size: 16px; font-weight: 600; margin: 0; color: var(--ink); }
   .topbar { margin-bottom: 24px; }
-  .nav-bar {
-    display: flex; gap: 6px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; padding: 5px; box-shadow: var(--shadow); width: fit-content;
-  }
-  .nav-item {
-    font-size: 12.5px; font-weight: 600; padding: 7px 14px; border-radius: 7px; text-decoration: none;
-    color: var(--ink-soft);
-  }
-  a.nav-item:hover { background: var(--brand-tint); color: var(--brand-dark); }
-  .nav-current { background: var(--brand); color: white; }
-  .meta { color: var(--ink-soft); font-size: 14px; margin-bottom: 20px; }
+  .meta { color: var(--ink-soft); font-size: 15.5px; margin-bottom: 20px; }
   .intro {
     background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand); border-radius: 10px;
-    padding: 16px 18px; margin-bottom: 28px; font-size: 13.5px; line-height: 1.55; color: var(--ink-soft);
+    padding: 16px 18px; margin-bottom: 28px; font-size: 15px; line-height: 1.55; color: var(--ink-soft);
   }
   .connect-section { margin-bottom: 32px; }
   .connect-card {
     background: linear-gradient(165deg, var(--brand-tint) 0%, var(--surface) 55%);
     border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow);
   }
-  .connect-intro { font-size: 13.5px; color: var(--ink-soft); margin-bottom: 18px; max-width: 640px; line-height: 1.5; }
+  .connect-intro { font-size: 15px; color: var(--ink-soft); margin-bottom: 18px; max-width: 640px; line-height: 1.5; }
   .connect-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
   .connect-option {
     display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left;
@@ -204,8 +171,8 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
   .connect-option .connect-icon svg { width: 18px; height: 18px; }
-  .connect-option-title { font-size: 13.5px; font-weight: 650; color: var(--ink); }
-  .connect-option-desc { font-size: 12px; color: var(--ink-faint); line-height: 1.45; }
+  .connect-option-title { font-size: 15px; font-weight: 650; color: var(--ink); }
+  .connect-option-desc { font-size: 13.5px; color: var(--ink-faint); line-height: 1.45; }
   .connect-status-card {
     display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
     background: var(--success-tint); border: 1px solid #bfe3cf; border-radius: 12px; padding: 16px 20px;
@@ -216,8 +183,8 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
   .connect-status-icon svg { width: 16px; height: 16px; }
-  .connect-status-title { font-size: 13.5px; font-weight: 650; color: var(--ink); }
-  .connect-status-desc { font-size: 12.5px; color: var(--ink-soft); }
+  .connect-status-title { font-size: 15px; font-weight: 650; color: var(--ink); }
+  .connect-status-desc { font-size: 14px; color: var(--ink-soft); }
   .layout { display: flex; gap: 16px; align-items: flex-start; }
   .panel {
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
@@ -227,79 +194,157 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   .detail-panel { flex: 1; min-width: 0; }
   .table-item {
     display: block; width: 100%; text-align: left; padding: 8px 10px; border: none;
-    background: none; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--ink);
+    background: none; border-radius: 6px; cursor: pointer; font-size: 14.5px; color: var(--ink);
   }
   .table-item:hover { background: var(--brand-tint); }
   .table-item.selected { background: var(--brand-tint); color: var(--brand-dark); font-weight: 600; }
-  .placeholder { color: var(--ink-faint); font-size: 13px; }
+  .placeholder { color: var(--ink-faint); font-size: 14.5px; }
   .not-connected {
     background: var(--warning-tint); border: 1px solid #f0d8ab; color: #7a4600;
-    padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.5;
+    padding: 12px 14px; border-radius: 8px; font-size: 14.5px; line-height: 1.5;
   }
   .not-connected code { background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 4px; }
-  table.col-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 16px; }
+  table.col-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px; }
   table.col-table th {
     text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border);
-    color: var(--ink-soft); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em;
+    color: var(--ink-soft); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em;
   }
   table.col-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border-soft); }
   .select-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
-  .col-checkbox-row { display: flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 4px 0; }
+  .col-checkbox-row { display: flex; align-items: center; gap: 7px; font-size: 14px; padding: 4px 0; }
   .btn {
     padding: 7px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--ink);
-    border-radius: 7px; font-size: 12.5px; font-weight: 550; cursor: pointer; margin: 4px 6px 4px 0;
+    border-radius: 7px; font-size: 14px; font-weight: 550; cursor: pointer; margin: 4px 6px 4px 0;
     transition: border-color 0.12s ease, background 0.12s ease;
   }
   .btn:hover { border-color: #c7cde0; background: #f8f9fc; }
   .btn-primary { background: var(--brand); border-color: var(--brand); color: white; }
   .btn-primary:hover { background: var(--brand-dark); border-color: var(--brand-dark); }
+  /* Regression (2026-09-12): .btn never had its own :disabled rule, so
+     the wizard's Back/Next buttons (disabled at each end via
+     backBtn.disabled/nextBtn.disabled in renderMappingCards()) had no
+     custom-styled greyed-out appearance - a user asked for exactly that.
+     Browsers apply no default dimming to a custom-colored button either,
+     which is why this went unnoticed until pointed out. */
+  .btn:disabled, .btn:disabled:hover {
+    opacity: 0.45; cursor: not-allowed; background: var(--canvas); border-color: var(--border); color: var(--ink-faint);
+  }
+  .btn-primary:disabled, .btn-primary:disabled:hover {
+    background: var(--ink-faint); border-color: var(--ink-faint); color: white; opacity: 0.55;
+  }
   .join-block { margin: 10px 0; padding: 12px 14px; background: var(--canvas); border: 1px solid var(--border-soft); border-radius: 8px; }
-  .join-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin-bottom: 8px; flex-wrap: wrap; }
+  .join-row { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 8px; flex-wrap: wrap; }
   select {
-    padding: 5px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px;
+    padding: 5px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;
     background: var(--surface); color: var(--ink);
   }
   .sql-box {
-    background: #10152a; color: #c9d8ff; padding: 12px 14px; border-radius: 8px; font-size: 11.5px;
+    background: #10152a; color: #c9d8ff; padding: 12px 14px; border-radius: 8px; font-size: 13px;
     overflow-x: auto; margin: 10px 0; white-space: pre-wrap; word-break: break-word; line-height: 1.5;
   }
-  .truncated-note { font-size: 11.5px; color: var(--ink-faint); margin-top: 6px; }
+  .truncated-note { font-size: 13px; color: var(--ink-faint); margin-top: 6px; }
   .error-box {
     background: var(--danger-tint); border: 1px solid var(--danger-border); color: var(--danger);
-    padding: 9px 13px; border-radius: 8px; font-size: 12.5px; margin: 10px 0; line-height: 1.45;
+    padding: 9px 13px; border-radius: 8px; font-size: 14px; margin: 10px 0; line-height: 1.45;
   }
+  .run-analysis-section { margin-bottom: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; box-shadow: var(--shadow); }
+  .run-analysis-intro { font-size: 13.5px; color: var(--ink-faint); margin-bottom: 10px; line-height: 1.45; }
+  .run-analysis-result { margin-top: 12px; }
+  .run-analysis-summary-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; color: var(--ink); }
+  .run-analysis-timestamp { font-size: 13px; color: var(--ink-faint); margin-top: 4px; }
   .mapping-section { margin-bottom: 28px; }
-  .mapping-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 14px; }
-  .mapping-card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-    padding: 16px 18px; box-shadow: var(--shadow); transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  /* Regression (2026-09-12, fourth report): the 3 datasets used to render
+     as 3 side-by-side cards, each mixing its mapping controls and its full
+     field reference together - a user asked for this to become a 3-tab
+     wizard instead, one dataset visible at a time, mapping controls on
+     the left of a two-column box and field info on the right, with
+     Next/Back to move between datasets. .mapping-tab-accent-N/
+     .mapping-box-accent-N give each of the 3 tabs its own color (also
+     answers a separate "add more colors" ask in the same message) reusing
+     the existing brand/accent-2/success tokens rather than inventing new
+     ones. */
+  .mapping-tab-strip { display: flex; gap: 8px; margin-bottom: 0; flex-wrap: wrap; }
+  .mapping-tab {
+    display: flex; align-items: center; gap: 8px; padding: 10px 16px 9px; border-radius: 10px 10px 0 0;
+    border: 1px solid var(--border); border-bottom: none; background: var(--canvas); color: var(--ink-soft);
+    font-size: 14.5px; font-weight: 600; cursor: pointer; font-family: inherit; border-top: 3px solid transparent;
   }
-  .mapping-card:hover { border-color: #c7cde0; box-shadow: 0 4px 14px rgba(19,24,38,0.07); }
-  .mapping-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .mapping-tab:hover { background: var(--surface); color: var(--ink); }
+  .mapping-tab-active { background: var(--surface); color: var(--ink); position: relative; z-index: 1; }
+  .mapping-tab-accent-0.mapping-tab-active { border-top-color: var(--brand); }
+  .mapping-tab-accent-1.mapping-tab-active { border-top-color: var(--accent-2); }
+  .mapping-tab-accent-2.mapping-tab-active { border-top-color: var(--success); }
+  .mapping-box {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 0 10px 10px 10px;
+    box-shadow: var(--shadow); margin-top: -1px; position: relative;
+  }
+  .mapping-box-accent-0 { border-top: 3px solid var(--brand); }
+  .mapping-box-accent-1 { border-top: 3px solid var(--accent-2); }
+  .mapping-box-accent-2 { border-top: 3px solid var(--success); }
+  .mapping-box-col { padding: 20px 22px; min-width: 0; }
+  /* A user asked for "a few more background pictures" on the app's boxes
+     - a very faint dot-grid on each column's actual (opaque) surface, not
+     the outer .mapping-box, since both columns fully cover it.
+     Regression (2026-09-12, fourth report): .mapping-box used to clip
+     these 2 columns with overflow: hidden, just to keep their square
+     corners from poking past the box's own rounded ones - that silently
+     clipped the "Run Analysis" status .term tooltip too (a popover
+     positioned above its trigger, cut off by the very next ancestor's
+     edge), which a user reported as the tooltip "not visible." Moved the
+     corner rounding onto each column directly instead, so the box no
+     longer needs to clip anything and a tooltip can escape it. */
+  .mapping-box-left {
+    border-right: 1px solid var(--border-soft);
+    border-radius: 0 0 0 10px;
+    background-image: radial-gradient(circle at 1px 1px, rgba(29, 78, 216, 0.05) 1px, transparent 0);
+    background-size: 16px 16px;
+  }
+  .mapping-box-right {
+    border-radius: 0 10px 10px 0;
+    background-color: var(--canvas);
+    background-image: radial-gradient(circle at 1px 1px, rgba(29, 78, 216, 0.045) 1px, transparent 0);
+    background-size: 16px 16px;
+  }
+  .mapping-wizard-nav { display: flex; justify-content: space-between; margin-top: 14px; }
   .status-badge {
-    flex-shrink: 0; font-size: 10.5px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase;
+    flex-shrink: 0; font-size: 12px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase;
     padding: 3px 9px; border-radius: 100px; white-space: nowrap;
   }
   .status-mapped .status-badge { background: var(--success-tint); color: var(--success); }
   .status-not_mapped .status-badge { background: var(--warning-tint); color: var(--warning); }
   .status-unavailable .status-badge { background: var(--neutral-tint); color: var(--neutral); }
-  .mapping-status-line { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 10px; }
-  .mapping-unavailable-note { font-size: 12px; color: var(--warning); background: var(--warning-tint); border-radius: 7px; padding: 7px 10px; margin: -2px 0 12px; }
-  .mapping-computed-note { font-size: 12px; color: var(--brand-dark); background: var(--brand-tint); border-radius: 7px; padding: 7px 10px; margin: -2px 0 12px; }
-  .mapping-fields { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 12px; line-height: 1.6; }
-  .mapping-fields .field-line { margin: 2px 0; }
-  .mapping-fields .field-optional { color: var(--ink-faint); }
+  .mapping-status-line { font-size: 14px; color: var(--ink-soft); margin-bottom: 10px; }
+  .notice-with-icon { display: flex; align-items: flex-start; gap: 8px; }
+  .notice-with-icon svg { width: 15px; height: 15px; flex-shrink: 0; margin-top: 2px; }
+  .notice-with-icon .notice-body { flex: 1; min-width: 0; }
+  .notice-with-icon ul { margin: 3px 0 0; padding-left: 18px; }
+  .mapping-unavailable-note { font-size: 13.5px; color: var(--warning); background: var(--warning-tint); border-radius: 7px; padding: 8px 11px; margin: 0 0 12px; }
+  .mapping-computed-note { font-size: 13.5px; color: var(--brand-dark); background: var(--brand-tint); border-radius: 7px; padding: 8px 11px; margin: 0 0 12px; }
+  .field-list { list-style: none; margin: 0; padding: 0; }
+  .field-item { padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+  .field-item:last-child { border-bottom: none; }
+  .field-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap; }
+  .field-name {
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 650; color: var(--brand-dark);
+    background: var(--brand-tint); padding: 1px 7px; border-radius: 5px;
+  }
+  .field-required-tag, .field-optional-tag { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.03em; }
+  .field-required-tag { color: var(--danger); }
+  .field-optional-tag { color: var(--ink-faint); }
+  .field-desc { font-size: 14px; color: var(--ink-soft); line-height: 1.5; }
+  .field-example { font-size: 12.5px; color: var(--ink-faint); font-style: italic; margin-top: 2px; }
   .search-input {
-    width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px;
+    width: 100%; padding: 7px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 14px;
     margin-bottom: 8px; box-sizing: border-box; background: var(--surface); color: var(--ink);
   }
   .search-input:focus, .sql-input:focus, select:focus { outline: 2px solid var(--brand-tint); border-color: var(--brand); }
   .table-search-results { max-height: 160px; overflow-y: auto; border: 1px solid var(--border-soft); border-radius: 7px; margin-bottom: 8px; }
-  .mapping-form-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin: 7px 0; flex-wrap: wrap; }
+  .mapping-form-row { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 7px 0; flex-wrap: wrap; }
   .mapping-form-row > label:first-child { width: 150px; flex-shrink: 0; color: var(--ink-soft); }
   .mapping-form-row select, .mapping-form-row input[type="text"], .mapping-form-row input[type="password"] { flex: 1; min-width: 0; max-width: 100%; margin-bottom: 0; }
   .mapping-form-row label.unavailable-check {
-    display: flex; align-items: center; gap: 5px; width: auto; flex: none; color: var(--ink-faint); font-size: 12px; white-space: nowrap; cursor: pointer;
+    display: flex; align-items: center; gap: 5px; width: auto; flex: none; color: var(--ink-faint); font-size: 13.5px; white-space: nowrap; cursor: pointer;
   }
   .mapping-form-row label.unavailable-check input[type="checkbox"] { flex: none; margin: 0; }
   .mapping-compute-row {
@@ -307,35 +352,29 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
     background: var(--neutral-tint); border-radius: 7px;
   }
   .mapping-compute-row > label, .mapping-compute-row > label:first-child {
-    width: auto; flex-shrink: 0; color: var(--ink-faint); font-size: 11.5px; margin-top: 4px;
+    width: auto; flex-shrink: 0; color: var(--ink-faint); font-size: 13px; margin-top: 4px;
   }
   .mapping-compute-row > label:first-child { margin-top: 0; }
   .mapping-compute-row select { width: 100%; }
   .table-scroll { overflow-x: auto; max-width: 100%; }
   .sql-input {
-    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px;
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; font-size: 14px;
     margin-bottom: 8px; box-sizing: border-box; font-family: "SF Mono", Menlo, Consolas, monospace; color: var(--ink);
   }
   .btn-link {
-    background: none; border: none; color: var(--brand); text-decoration: none; font-size: 12.5px;
+    background: none; border: none; color: var(--brand); text-decoration: none; font-size: 14px;
     font-weight: 550; cursor: pointer; padding: 5px 0; display: block;
   }
   .btn-link:hover { text-decoration: underline; color: var(--brand-dark); }
-  .guardrail-note { font-size: 11.5px; color: var(--ink-faint); margin: 4px 0 10px; line-height: 1.5; }
+  .guardrail-note { font-size: 13px; color: var(--ink-faint); margin: 4px 0 10px; line-height: 1.5; }
 </style>
 </head>
 <body>
+$onboarding
 <div class="page">
   <div class="topbar">
-    <div class="nav-bar">
-      <span class="nav-item nav-current">Data Console</span>
-      <a class="nav-item" href="/dashboard/control_tower_real_data.html">Live Data</a>
-      <a class="nav-item" href="/dashboard/control_tower_partial_failure.html">Demo: Partial Data</a>
-      <a class="nav-item" href="/dashboard/control_tower_synthetic_healthy.html">Demo: Healthy Example</a>
-    </div>
-    <div class="kicker">Supply Chain Data</div>
-    <h1>Data Console</h1>
-    <div class="meta">Connect your data once, then map it to the datasets this system needs for analysis.</div>
+    $nav_bar
+    $page_header
   </div>
   <div class="intro">
     This page reads directly from your data — it never modifies or moves anything. Connect a database,
@@ -351,6 +390,9 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
   </div>
   <div class="mapping-section" id="mapping-section">
     <h2>Map Your Data</h2>
+    <div class="placeholder">Loading...</div>
+  </div>
+  <div class="run-analysis-section" id="run-analysis-section">
     <div class="placeholder">Loading...</div>
   </div>
   <div id="content">
@@ -436,23 +478,40 @@ function buildColumnCheckboxes(tableName, columns, defaultChecked) {
 
 async function loadTables() {
   const content = document.getElementById('content');
+  clear(content);
+  if (!userSelectedDatabase) {
+    // Regression (2026-09-12, second report): the first fix here gated on
+    // activeSourceKind === 'database', which fixed the CSV/Sheet case but
+    // missed a second, more common one - a database reachable via
+    // SUPPLYMIND_PG_* env vars gets silently adopted as activeSourceKind
+    // ='database' the moment this page loads (see loadConnectSection's
+    // "already reachable" branch) and again inside startMapping() if a
+    // card is mapped before the top section ever renders, in both cases
+    // with no click from the user at all. A user who then mapped every
+    // dataset from an uploaded CSV instead still saw a full live table
+    // browser here and reported it as "I can still view the tables ...
+    // this should only be visible if we have selected Database as a
+    // source" - correctly reading the silent auto-adopt as never having
+    // chosen anything. Gated on userSelectedDatabase instead, which is
+    // only ever set inside renderDbConnectionForm's own submit handler -
+    // the one place an actual "Connect a Database" form was filled in and
+    // succeeded, from either the top-level chooser or a per-card one -
+    // never by a background reachability check.
+    content.appendChild(emptyState(
+      _ICON_WAREHOUSE.cloneNode(true),
+      'No database connected',
+      'Browse any table directly once a database is connected above under "Connect Your Data". If you just want to map Customer Orders, Inventory, or Delivery Records, you can do that with a CSV file or a Google Sheets link instead — no database required.',
+    ));
+    return;
+  }
   const resp = await fetch('/api/tables');
   const data = await resp.json();
   clear(content);
   if (!data.connected) {
-    // Deliberately not styled as an error: showing up disconnected is this
-    // page's normal starting state, not a problem to alarm someone with the
-    // moment they open it - a real error box only appears below in response
-    // to an actual attempt to connect that actually failed.
-    content.appendChild(el('div', {
-      className: 'placeholder',
-      text: 'Browse any table directly once a database is connected. If you just want to map Customer Orders, Inventory, or Delivery Records, you can do that above with a CSV file or a Google Sheets link instead — no database required.',
-    }));
-    const dbBtn = el('button', {className: 'btn btn-primary', text: 'Connect a Database'});
-    dbBtn.addEventListener('click', function() {
-      renderDbConnectionForm(content, function() { loadTables(); }, function() { return loadTables(); });
-    });
-    content.appendChild(dbBtn);
+    // activeSourceKind said 'database' but the connection has since
+    // dropped (or was never actually reachable) - a real, if unusual,
+    // race between this check and the one activeSourceKind was set from.
+    content.appendChild(el('div', {className: 'not-connected', text: 'Database not currently reachable.'}));
     return;
   }
   if (data.tables.length === 0) {
@@ -472,7 +531,7 @@ async function loadTables() {
   });
   const detailPanel = el('div', {className: 'panel detail-panel'});
   detailPanel.id = 'detail';
-  detailPanel.appendChild(el('div', {className: 'placeholder', text: 'Select a table to view its columns.'}));
+  detailPanel.appendChild(emptyState(_ICON_TABLE.cloneNode(true), 'No table selected', 'Select a table to view its columns.'));
   layout.appendChild(tablesPanel);
   layout.appendChild(detailPanel);
   content.appendChild(layout);
@@ -694,20 +753,45 @@ async function runPreview() {
 
 let datasetRequirements = [];
 let currentMappings = {};
+// Which of the 3 datasets' tab is currently shown - persists across
+// re-renders (loadMappingSection() re-runs this same module-level value
+// through, it's never reset to 0) so clearing/mapping/previewing a
+// dataset keeps the wizard on the tab the user was just working in,
+// rather than snapping back to the first one.
+let activeMappingTabIndex = 0;
 
+const _ICON_WARNING = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"></path><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path><path d="M12 17h.01"></path></svg>').cloneNode(true);
+const _ICON_INFO = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>').cloneNode(true);
+
+// Regression (2026-09-12, second report): the first fix here (a closed-
+// by-default <details> disclosure) helped, but the user came back asking
+// for the field-by-field reference to render "as a list" with the field
+// name visually distinguished, rather than one run-on sentence per field.
+// Combined with moving this into its own dedicated column (see
+// renderMappingCards below), a <details> toggle is no longer needed - the
+// field name (as a small code-styled tag), its required/optional tag, its
+// description, and its example now each get their own line inside a real
+// <ul>, rather than being concatenated into one text node.
 function buildFieldsList(requirements) {
-  const container = el('div', {className: 'mapping-fields'});
-  requirements.required.forEach(function(f) {
-    const line = el('div', {className: 'field-line'});
-    line.appendChild(document.createTextNode(f.name + ' (required): ' + f.description + ' — for example, "' + f.example + '".'));
-    container.appendChild(line);
-  });
-  requirements.optional.forEach(function(f) {
-    const line = el('div', {className: 'field-line field-optional'});
-    line.appendChild(document.createTextNode(f.name + ' (optional): ' + f.description + ' — for example, "' + f.example + '".'));
-    container.appendChild(line);
-  });
-  return container;
+  const list = el('ul', {className: 'field-list'});
+
+  function addField(f, isRequired) {
+    const item = el('li', {className: 'field-item'});
+    const head = el('div', {className: 'field-item-head'});
+    head.appendChild(el('span', {className: 'field-name', text: f.name}));
+    head.appendChild(el('span', {
+      className: isRequired ? 'field-required-tag' : 'field-optional-tag',
+      text: isRequired ? 'required' : 'optional',
+    }));
+    item.appendChild(head);
+    item.appendChild(el('div', {className: 'field-desc', text: f.description}));
+    item.appendChild(el('div', {className: 'field-example', text: 'e.g. "' + f.example + '"'}));
+    list.appendChild(item);
+  }
+
+  requirements.required.forEach(function(f) { addField(f, true); });
+  requirements.optional.forEach(function(f) { addField(f, false); });
+  return list;
 }
 
 function mappingStatusLine(status) {
@@ -737,76 +821,129 @@ async function loadMappingSection() {
   renderMappingCards();
 }
 
+// Regression (2026-09-12, fourth report): this used to render all 3
+// datasets as side-by-side cards, each one mixing mapping controls and
+// the full field reference together - a user asked for a 3-tab wizard
+// instead: one dataset visible at a time, mapping on the left of a
+// two-column box, field info on the right, Next/Back to move between the
+// 3. activeMappingTabIndex (module-level, not reset here) is what makes
+// this a real "tab" rather than a fresh accordion each render - clicking
+// a tab, or Next/Back, just changes that index and re-renders.
 function renderMappingCards() {
   const section = document.getElementById('mapping-section');
   clear(section);
   section.appendChild(el('h2', {text: 'Map Your Data'}));
 
-  const grid = el('div', {className: 'mapping-cards'});
-  datasetRequirements.forEach(function(requirements) {
+  const tabStrip = el('div', {className: 'mapping-tab-strip'});
+  datasetRequirements.forEach(function(requirements, i) {
     const status = currentMappings[requirements.dataset_name] || {status: 'not_mapped'};
-    const card = el('div', {className: 'mapping-card status-' + status.status});
-    const head = el('div', {className: 'mapping-card-head'});
-    head.appendChild(el('h3', {text: requirements.label}));
-    head.appendChild(el('span', {className: 'status-badge', text: statusBadgeText(status)}));
-    card.appendChild(head);
-    card.appendChild(el('div', {className: 'mapping-status-line', text: mappingStatusLine(status)}));
-    if (status.status === 'mapped' && status.unavailable_fields && status.unavailable_fields.length > 0) {
-      card.appendChild(el('div', {
-        className: 'mapping-unavailable-note',
-        text: 'Not available in this dataset: ' + status.unavailable_fields.join(', ') + ' — any analysis needing these will be skipped.',
-      }));
-    }
-    if (status.status === 'mapped' && status.computed_date_fields && Object.keys(status.computed_date_fields).length > 0) {
-      const computedDescriptions = Object.keys(status.computed_date_fields).map(function(fieldName) {
-        const spec = status.computed_date_fields[fieldName];
-        return fieldName + ' = "' + spec.base_date_column + '" + "' + spec.offset_days_column + '" day(s)';
-      });
-      card.appendChild(el('div', {
-        className: 'mapping-computed-note',
-        text: 'Computed: ' + computedDescriptions.join('; ') + '.',
-      }));
-    }
-    card.appendChild(buildFieldsList(requirements));
+    const isActive = i === activeMappingTabIndex;
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'mapping-tab status-' + status.status + ' mapping-tab-accent-' + i + (isActive ? ' mapping-tab-active' : '');
+    tab.appendChild(el('span', {text: requirements.label}));
+    tab.appendChild(el('span', {className: 'status-badge', text: statusBadgeText(status)}));
+    tab.addEventListener('click', function() { activeMappingTabIndex = i; renderMappingCards(); });
+    tabStrip.appendChild(tab);
+  });
+  section.appendChild(tabStrip);
 
-    const actions = el('div');
-    if (status.status === 'mapped') {
-      const previewBtn = el('button', {className: 'btn', text: 'Preview'});
-      previewBtn.addEventListener('click', function() { previewMapping(requirements.dataset_name); });
-      const changeBtn = el('button', {className: 'btn', text: 'Change'});
-      changeBtn.addEventListener('click', function() { startMapping(requirements); });
-      const clearBtn = el('button', {className: 'btn', text: 'Clear'});
+  const requirements = datasetRequirements[activeMappingTabIndex];
+  const status = currentMappings[requirements.dataset_name] || {status: 'not_mapped'};
+  const box = el('div', {className: 'mapping-box mapping-box-accent-' + activeMappingTabIndex});
+
+  // Left column: everything about *acting on* this dataset's mapping.
+  const left = el('div', {className: 'mapping-box-col mapping-box-left'});
+  const head = el('div', {className: 'mapping-card-head'});
+  head.appendChild(el('h3', {text: requirements.label}));
+  head.appendChild(el('span', {className: 'status-badge', text: statusBadgeText(status)}));
+  left.appendChild(head);
+  left.appendChild(el('div', {className: 'mapping-status-line', text: mappingStatusLine(status)}));
+
+  const actions = el('div');
+  if (status.status === 'mapped') {
+    const previewBtn = el('button', {className: 'btn', text: 'Preview'});
+    previewBtn.addEventListener('click', function() { previewMapping(requirements.dataset_name); });
+    const changeBtn = el('button', {className: 'btn', text: 'Change'});
+    changeBtn.addEventListener('click', function() { startMapping(requirements); });
+    const clearBtn = el('button', {className: 'btn', text: 'Clear'});
+    clearBtn.addEventListener('click', function() { clearMapping(requirements.dataset_name); });
+    actions.appendChild(previewBtn);
+    actions.appendChild(changeBtn);
+    actions.appendChild(clearBtn);
+  } else {
+    const mapBtn = el('button', {className: 'btn btn-primary', text: 'Map This Dataset'});
+    mapBtn.addEventListener('click', function() { startMapping(requirements); });
+    actions.appendChild(mapBtn);
+    if (status.status === 'unavailable') {
+      const clearBtn = el('button', {className: 'btn', text: 'Undo "Not Available"'});
       clearBtn.addEventListener('click', function() { clearMapping(requirements.dataset_name); });
-      actions.appendChild(previewBtn);
-      actions.appendChild(changeBtn);
       actions.appendChild(clearBtn);
     } else {
-      const mapBtn = el('button', {className: 'btn btn-primary', text: 'Map This Dataset'});
-      mapBtn.addEventListener('click', function() { startMapping(requirements); });
-      actions.appendChild(mapBtn);
-      if (status.status === 'unavailable') {
-        const clearBtn = el('button', {className: 'btn', text: 'Undo "Not Available"'});
-        clearBtn.addEventListener('click', function() { clearMapping(requirements.dataset_name); });
-        actions.appendChild(clearBtn);
-      } else {
-        const unavailableBtn = el('button', {className: 'btn', text: 'Not Available in This Database'});
-        unavailableBtn.addEventListener('click', function() { markUnavailable(requirements.dataset_name); });
-        actions.appendChild(unavailableBtn);
-      }
+      const unavailableBtn = el('button', {className: 'btn', text: 'Not Available in This Database'});
+      unavailableBtn.addEventListener('click', function() { markUnavailable(requirements.dataset_name); });
+      actions.appendChild(unavailableBtn);
     }
-    card.appendChild(actions);
+  }
+  left.appendChild(actions);
 
-    const pickerArea = el('div');
-    pickerArea.id = 'mapping-picker-' + requirements.dataset_name;
-    card.appendChild(pickerArea);
+  const pickerArea = el('div');
+  pickerArea.id = 'mapping-picker-' + requirements.dataset_name;
+  left.appendChild(pickerArea);
 
-    const resultArea = el('div');
-    resultArea.id = 'mapping-result-' + requirements.dataset_name;
-    card.appendChild(resultArea);
+  const resultArea = el('div');
+  resultArea.id = 'mapping-result-' + requirements.dataset_name;
+  left.appendChild(resultArea);
 
-    grid.appendChild(card);
+  // Right column: everything about *what this dataset needs* - status
+  // notes and the full field reference, nothing actionable, so a reader
+  // can scan it without it competing with the buttons on the left.
+  const right = el('div', {className: 'mapping-box-col mapping-box-right'});
+  if (status.status === 'mapped' && status.unavailable_fields && status.unavailable_fields.length > 0) {
+    const note = el('div', {className: 'mapping-unavailable-note notice-with-icon'});
+    note.appendChild(_ICON_WARNING.cloneNode(true));
+    const body = el('div', {className: 'notice-body'});
+    body.appendChild(document.createTextNode('Not available in this dataset - any analysis needing these will be skipped:'));
+    const ul = document.createElement('ul');
+    status.unavailable_fields.forEach(function(name) { ul.appendChild(el('li', {text: name})); });
+    body.appendChild(ul);
+    note.appendChild(body);
+    right.appendChild(note);
+  }
+  if (status.status === 'mapped' && status.computed_date_fields && Object.keys(status.computed_date_fields).length > 0) {
+    const note = el('div', {className: 'mapping-computed-note notice-with-icon'});
+    note.appendChild(_ICON_INFO.cloneNode(true));
+    const body = el('div', {className: 'notice-body'});
+    body.appendChild(document.createTextNode('Computed automatically:'));
+    const ul = document.createElement('ul');
+    Object.keys(status.computed_date_fields).forEach(function(fieldName) {
+      const spec = status.computed_date_fields[fieldName];
+      ul.appendChild(el('li', {text: fieldName + ' = "' + spec.base_date_column + '" + "' + spec.offset_days_column + '" day(s)'}));
+    });
+    body.appendChild(ul);
+    note.appendChild(body);
+    right.appendChild(note);
+  }
+  right.appendChild(buildFieldsList(requirements));
+
+  box.appendChild(left);
+  box.appendChild(right);
+  section.appendChild(box);
+
+  const nav = el('div', {className: 'mapping-wizard-nav'});
+  const backBtn = el('button', {className: 'btn', text: '← Back'});
+  backBtn.disabled = activeMappingTabIndex === 0;
+  backBtn.addEventListener('click', function() {
+    if (activeMappingTabIndex > 0) { activeMappingTabIndex -= 1; renderMappingCards(); }
   });
-  section.appendChild(grid);
+  const nextBtn = el('button', {className: 'btn btn-primary', text: 'Next →'});
+  nextBtn.disabled = activeMappingTabIndex === datasetRequirements.length - 1;
+  nextBtn.addEventListener('click', function() {
+    if (activeMappingTabIndex < datasetRequirements.length - 1) { activeMappingTabIndex += 1; renderMappingCards(); }
+  });
+  nav.appendChild(backBtn);
+  nav.appendChild(nextBtn);
+  section.appendChild(nav);
 }
 
 async function startMapping(requirements) {
@@ -1030,6 +1167,7 @@ function renderDbConnectionForm(container, onBack, onConnected) {
       return;
     }
 
+    userSelectedDatabase = true;
     await onConnected();
   });
 }
@@ -1052,6 +1190,31 @@ const _ICON_DATABASE = icon('<svg viewBox="0 0 24 24" fill="none" stroke="curren
 const _ICON_FILE = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M12 18v-6"></path><path d="M9.5 14.5 12 12l2.5 2.5"></path></svg>').cloneNode(true);
 const _ICON_SHEET = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18"></path><path d="M3 15h18"></path><path d="M9 3v18"></path></svg>').cloneNode(true);
 const _ICON_CHECK = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>').cloneNode(true);
+const _ICON_TABLE = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M9 10v10"></path></svg>').cloneNode(true);
+// A supply-chain-specific icon (matches local_apps/theme.py's own
+// ICON_WAREHOUSE) - a user asked for empty states to match "the theme of
+// the app" rather than a generic shape. Used where the empty state is
+// about a missing data source altogether, not a specific missing table
+// (which keeps _ICON_TABLE above, since that one already is literal).
+const _ICON_WAREHOUSE = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10 12 4l9 6"></path><path d="M4 10v10h16V10"></path><path d="M9 20v-6h6v6"></path></svg>').cloneNode(true);
+
+// A designed "nothing here yet" card (icon + title + short text) in
+// place of what used to be plain placeholder text - see
+// local_apps/theme.py's TOKENS_CSS .empty-state rules and its own
+// Python-side render_empty_state() (this is that same treatment's
+// client-side JS equivalent, needed here since this content is built via
+// DOM calls at runtime, not through the server-rendered page template).
+// `iconNode` should already be a fresh clone (e.g. _ICON_TABLE.cloneNode(true)),
+// matching the convention buildConnectOption() already uses for its own icons.
+function emptyState(iconNode, title, text) {
+  const container = el('div', {className: 'empty-state'});
+  const iconWrap = el('div', {className: 'empty-state-icon'});
+  iconWrap.appendChild(iconNode);
+  container.appendChild(iconWrap);
+  container.appendChild(el('div', {className: 'empty-state-title', text: title}));
+  container.appendChild(el('div', {className: 'empty-state-text', text: text}));
+  return container;
+}
 
 // --- Connect Your Data (top-level, once-per-session) ---
 // Lets a person connect a database, upload a file, or paste a Sheets link
@@ -1062,11 +1225,33 @@ const _ICON_CHECK = icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentCo
 // lastZipUpload for the *reuse* links, but must not silently change what
 // every other still-unmapped card defaults to.
 let activeSourceKind = null; // 'database' | 'file' | 'zip' | 'sheet' | null
+// Set only by the "Change" button below, and only consulted once (the
+// very next loadConnectSection() call it triggers) - see that call site.
+let skipAutoReconnect = false;
+// True only once the user has actually filled in and submitted the
+// "Connect a Database" form (renderDbConnectionForm's own connectBtn
+// handler, the single place this ever flips true) - unlike
+// activeSourceKind, this is never set by a silent background
+// reachability check, so it answers "did the user pick Database" rather
+// than "is a database currently reachable." See loadTables()'s own gate.
+let userSelectedDatabase = false;
 
 async function loadConnectSection() {
   const section = document.getElementById('connect-section');
   if (activeSourceKind) {
     renderConnectedStatus(section);
+    return;
+  }
+  if (skipAutoReconnect) {
+    // Regression: without this flag, clicking "Change" while a database
+    // is reachable via SUPPLYMIND_PG_* env vars did nothing visible - it
+    // set activeSourceKind to null, then this function immediately found
+    // that same still-reachable database via /api/tables and silently
+    // re-adopted it as the active source before the chooser ever
+    // rendered. An explicit "Change" click means the user wants to see
+    // the connect options, even if the env-var database is still there.
+    skipAutoReconnect = false;
+    renderConnectChooser(section);
     return;
   }
   const resp = await fetch('/api/tables');
@@ -1106,7 +1291,10 @@ function renderConnectedStatus(section) {
   const changeBtn = el('button', {className: 'btn', text: 'Change'});
   changeBtn.addEventListener('click', function() {
     activeSourceKind = null;
+    userSelectedDatabase = false;
+    skipAutoReconnect = true;
     loadConnectSection();
+    loadTables();
   });
   card.appendChild(changeBtn);
   section.appendChild(card);
@@ -1142,6 +1330,7 @@ function renderConnectChooser(section) {
     renderDbConnectionForm(formArea, function() { renderConnectChooser(section); }, function() {
       activeSourceKind = 'database';
       loadConnectSection();
+      loadTables();
       return Promise.resolve();
     });
   }));
@@ -1213,6 +1402,7 @@ function renderTopLevelUpload(container, section) {
       activeSourceKind = 'file';
     }
     loadConnectSection();
+    loadTables();
   });
 }
 
@@ -1271,6 +1461,7 @@ function renderTopLevelSheetConnect(container, section) {
     lastSheetLink = {url: url};
     activeSourceKind = 'sheet';
     loadConnectSection();
+    loadTables();
   });
 }
 
@@ -1822,9 +2013,104 @@ async function previewMapping(datasetName) {
   }
 }
 
-loadConnectSection();
-loadTables();
+// "Run Analysis" - re-runs the pipeline against whatever's mapped above and
+// refreshes the Live Data dashboard. No async load needed on page open
+// (there's nothing to fetch until the button is clicked), unlike the other
+// 3 sections above.
+// Same 3 states, same wording, as dashboard/render.py's own
+// _STATUS_EXPLANATIONS - kept in sync by hand since this is JS, not
+// Python. Added after a user asked what "Degraded" means on the
+// Executive Control Tower; this status word appears here too.
+const _STATUS_EXPLANATIONS = {
+  ok: 'Every data source and check ran successfully - the results below reflect complete, up-to-date data.',
+  degraded: "Some data sources or checks failed to run - the results below reflect only what did succeed.",
+  error: 'Nothing could be checked - no data source succeeded, so there is nothing reliable to show below.',
+};
+
+function renderRunAnalysisResult(container, summary) {
+  clear(container);
+  const status = summary.overall_status;
+  const isOk = status === 'ok';
+  const row = el('div', {className: 'run-analysis-summary-row'});
+  const prefix = el('span', {text: (isOk ? '✓ ' : '⚠ ') + 'Analysis complete - overall status: '});
+  const explanation = _STATUS_EXPLANATIONS[status];
+  if (explanation) {
+    const statusSpan = el('span', {className: 'term', text: status});
+    statusSpan.dataset.tooltip = explanation;
+    prefix.appendChild(statusSpan);
+  } else {
+    prefix.appendChild(document.createTextNode(status || 'unknown'));
+  }
+  prefix.appendChild(document.createTextNode('.'));
+  row.appendChild(prefix);
+  if (summary.total_critical_findings !== null && summary.total_high_findings !== null) {
+    row.appendChild(el('span', {
+      text: summary.total_critical_findings + ' critical, ' + summary.total_high_findings + ' high finding(s) across ' + summary.tiles.length + ' tile(s).',
+    }));
+  }
+  const link = document.createElement('a');
+  link.href = '/dashboard/control_tower_real_data.html';
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.textContent = 'View Live Data →';
+  row.appendChild(link);
+  container.appendChild(row);
+  if (summary.notification) {
+    container.appendChild(el('div', {className: 'not-connected', text: summary.notification}));
+  }
+  container.appendChild(el('div', {
+    className: 'run-analysis-timestamp',
+    text: 'Last run: ' + new Date().toLocaleString(),
+  }));
+}
+
+function initRunAnalysisSection() {
+  const section = document.getElementById('run-analysis-section');
+  clear(section);
+  section.appendChild(el('h2', {text: 'Run Analysis'}));
+  section.appendChild(el('div', {
+    className: 'run-analysis-intro',
+    text: 'Re-runs every analysis agent against whatever is mapped above right now and refreshes the Live Data dashboard. Takes a few seconds.',
+  }));
+  const runBtn = el('button', {className: 'btn btn-primary', text: 'Run Analysis'});
+  const resultArea = el('div', {className: 'run-analysis-result'});
+  runBtn.addEventListener('click', function() {
+    runBtn.disabled = true;
+    runBtn.textContent = 'Running...';
+    clear(resultArea);
+    resultArea.appendChild(el('div', {className: 'placeholder', text: 'Running the analysis pipeline against your mapped data...'}));
+    fetch('/api/run-analysis', {method: 'POST'})
+      .then(function(resp) {
+        return resp.json().then(function(data) { return {ok: resp.ok, data: data}; });
+      })
+      .then(function(result) {
+        runBtn.disabled = false;
+        runBtn.textContent = 'Run Analysis';
+        clear(resultArea);
+        if (!result.ok) {
+          resultArea.appendChild(el('div', {className: 'error-box', text: result.data.error || 'Analysis failed.'}));
+          return;
+        }
+        renderRunAnalysisResult(resultArea, result.data);
+      })
+      .catch(function(err) {
+        runBtn.disabled = false;
+        runBtn.textContent = 'Run Analysis';
+        clear(resultArea);
+        resultArea.appendChild(el('div', {className: 'error-box', text: 'Could not reach the server: ' + err.message}));
+      });
+  });
+  section.appendChild(runBtn);
+  section.appendChild(resultArea);
+}
+
+// loadTables() reads activeSourceKind, which loadConnectSection() may
+// still be resolving (its own auto-detect check against /api/tables) -
+// sequenced rather than fired in parallel so "Your Tables" doesn't
+// render (or wrongly skip rendering) against a not-yet-settled value.
+loadConnectSection().then(loadTables);
 loadMappingSection();
+initRunAnalysisSection();
 </script>
 </body>
 </html>""")
@@ -1988,7 +2274,23 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
 
     def _route_get(self) -> None:
         if self.path == "/":
-            self._send_html(200, _PAGE_TEMPLATE.substitute(row_limit=str(PREVIEW_ROW_LIMIT)))
+            self._send_html(
+                200,
+                _PAGE_TEMPLATE.substitute(
+                    row_limit=str(PREVIEW_ROW_LIMIT),
+                    google_font_links=theme.GOOGLE_FONT_LINKS,
+                    theme_tokens=theme.TOKENS_CSS,
+                    nav_bar=theme.render_nav_bar("Data Console"),
+                    page_header=theme.render_page_header(
+                        theme.ICON_DATABASE,
+                        '<div class="kicker">Supply Chain Data</div>'
+                        "<h1>Data Console</h1>"
+                        '<div class="meta">Connect your data once, then map it to the datasets this system needs for analysis.</div>',
+                        accent="brand",
+                    ),
+                    onboarding=theme.ONBOARDING_HTML,
+                ),
+            )
             return
         if self.path == "/api/tables":
             self._handle_list_tables()
@@ -2016,6 +2318,19 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "not found"})
 
     def _route_post(self) -> None:
+        if self.path == "/api/run-analysis":
+            self._handle_run_analysis()
+            return
+
+        if self.path == "/api/approve":
+            try:
+                raw_body = self._read_request_body()
+            except ValueError as exc:
+                self._send_json(400, {"error": f"invalid request: {exc}"})
+                return
+            self._handle_approve(raw_body)
+            return
+
         if self.path == "/api/preview":
             try:
                 raw_body = self._read_request_body()
@@ -2214,6 +2529,63 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
             )
             return
         self._send_html(200, html_path.read_text(encoding="utf-8"))
+
+    def _handle_run_analysis(self) -> None:
+        """Re-runs the full analysis pipeline against whatever's mapped right
+        now and re-renders the Live Data page in place - the server-side half
+        of the "Run Analysis" button. Takes no request body: there is nothing
+        to configure here beyond what "Map Your Data" above has already saved.
+
+        Synchronous and can take a few seconds (it runs every stage-1 agent),
+        which is expected for a manual "refresh now" action rather than a
+        background job - see dashboard/live_refresh.py's own docstring for why
+        this is safe to click more than once (same file overwritten, no
+        duplicated state). A data problem (bad mapping, unreachable database)
+        never raises here - it comes back as a "failure" data_sources entry in
+        the JSON summary itself, the same shape the console's own mapping
+        Preview already surfaces; only a genuine bug would escape to
+        _dispatch_safely's 500 handler.
+        """
+        summary = refresh_real_data_dashboard()
+        self._send_json(200, summary)
+
+    def _handle_approve(self, raw_body: bytes) -> None:
+        """Records one human approve/reject decision (dashboard/render.py's
+        per-tile Approve/Reject buttons POST here) - the server-side half of
+        "Human Approval & Audit Trail". Reads/writes the exact same
+        ApprovalStore dashboard/live_refresh.py's own render calls read
+        from (dashboard.live_refresh.approval_store()), so a decision made
+        here shows up the next time that dashboard_id is regenerated
+        (Run Analysis, or the next `python -m dashboard.run_sample_
+        dashboard`) - see approval_store's own "not idempotency-
+        deduplicated" note for why a decision is always appended, never
+        skipped as a duplicate.
+        """
+        try:
+            payload = json.loads(raw_body or b"{}")
+            dashboard_id = payload.get("dashboard_id")
+            metric_id = payload.get("metric_id")
+            decision = payload.get("decision")
+            reviewer = payload.get("reviewer")
+            note = payload.get("note", "")
+            if not isinstance(dashboard_id, str) or not dashboard_id:
+                raise ValueError("'dashboard_id' must be a non-empty string")
+            if not isinstance(metric_id, str) or not metric_id:
+                raise ValueError("'metric_id' must be a non-empty string")
+            if decision not in ("approved", "rejected"):
+                raise ValueError("'decision' must be 'approved' or 'rejected'")
+            if not isinstance(reviewer, str) or not reviewer.strip():
+                raise ValueError("'reviewer' must be a non-empty string")
+            if not isinstance(note, str):
+                raise ValueError("'note' must be a string")
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._send_json(400, {"error": f"invalid request: {exc}"})
+            return
+
+        record = approval_store().record(
+            dashboard_id=dashboard_id, metric_id=metric_id, decision=decision, reviewer=reviewer.strip(), note=note
+        )
+        self._send_json(200, record.to_json())
 
     def _handle_save_mapping(self, dataset_kind: str, raw_body: bytes) -> None:
         if dataset_kind not in BY_NAME:
@@ -2549,10 +2921,21 @@ class DataConsoleHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def main() -> int:
+def build_server() -> HTTPServer:
+    """Construct (but do not start) this app's HTTPServer.
+
+    Split out of main() so scripts/run_local_servers.py can build and run
+    this server alongside the other local apps in one process, with a
+    handle to call .shutdown() on - main()'s own serve_forever() loop has
+    no such handle to give an external caller.
+    """
     port = int(os.environ.get("SUPPLYMIND_DATA_CONSOLE_PORT", DEFAULT_PORT))
-    server = HTTPServer(("127.0.0.1", port), DataConsoleHandler)
-    print(f"Data console listening on http://127.0.0.1:{port}", file=sys.stderr)
+    return HTTPServer(("127.0.0.1", port), DataConsoleHandler)
+
+
+def main() -> int:
+    server = build_server()
+    print(f"Data console listening on http://127.0.0.1:{server.server_port}", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

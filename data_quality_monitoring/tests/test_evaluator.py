@@ -39,6 +39,19 @@ def test_run_records_one_audit_entry_per_dimension(tmp_path):
     assert completeness_record.score == 100.0
 
 
+def test_run_passes_numeric_fields_through_and_audits_the_validity_dimension_too(tmp_path):
+    store = QualityAuditStore(tmp_path / "audit.jsonl")
+    evaluator = DataQualityEvaluator(store)
+    rows = [{**_row("PO-1"), "transportation_cost": 1200.0}, {**_row("PO-2"), "transportation_cost": "garbage"}]
+
+    run = evaluator.run(rows, required_fields=REQUIRED, numeric_fields=("transportation_cost",), check_id="check-1")
+
+    assert {d.dimension for d in run.report.dimension_results} == {"completeness", "validity"}
+    assert store.has_recorded("check-1", "validity")
+    validity_record = next(r for r in store.records_for_check("check-1") if r.dimension == "validity")
+    assert validity_record.score == 50.0
+
+
 def test_run_is_idempotent_when_the_same_check_id_is_run_twice(tmp_path):
     store = QualityAuditStore(tmp_path / "audit.jsonl")
     evaluator = DataQualityEvaluator(store)

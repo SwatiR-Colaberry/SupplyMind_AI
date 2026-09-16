@@ -41,6 +41,7 @@ would make a supplier-kind issue about a flagged supplier unexplainable.
 
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass
 
 from agents.contracts import FindingSubjectKind
@@ -228,3 +229,137 @@ def analyze_root_cause(
         confidence=candidates[0].confidence,
         note=f"{len(candidates)} candidate cause(s) found",
     )
+
+
+# --- causal chains -------------------------------------------------
+#
+# analyze_root_cause() above finds each candidate cause independently -
+# "here are up to 3 plausible explanations." The product spec's own
+# example ("Demand up -> Supplier delay up -> Inventory down -> Stockout
+# risk up") asks for something more specific: a *chain*, where one
+# candidate is shown to plausibly have caused another rather than the two
+# just happening to both be true. build_causal_chain() below is additive
+# on top of an already-computed RootCauseAnalysis - it never changes what
+# analyze_root_cause() itself returns - and only chains two steps
+# together when a real temporal link supports it (see
+# _period_plausibly_precedes()); otherwise it degrades to the single
+# strongest candidate, which is still a fully valid answer on its own.
+
+CausalStepKind = str  # "demand_spike" | "supplier_delay" | "supplier_reliability" | "issue"
+
+# Max months a demand spike is considered a plausible antecedent of a
+# later supplier delay - a spike from 6 months before a delay is likely
+# unrelated; the spike's own month through 2 months before the delay's
+# expected date is a defensible window for "this probably strained the
+# supply chain enough to contribute." Configurable, not a universal
+# constant, same posture as inventory_risk/risk_model.py's own thresholds.
+MAX_ANTECEDENT_MONTHS = 2
+
+_STEP_ARROW_LABEL: dict[CausalStepKind, str] = {
+    "demand_spike": "Demand ↑",
+    "supplier_delay": "Supplier delay ↑",
+    "supplier_reliability": "Supplier reliability risk ↑",
+}
+
+
+@dataclass(frozen=True)
+class CausalStep:
+    cause: CausalStepKind
+    subject: str  # the period/po/supplier/issue-subject this step is about
+    detail: str
+    confidence: float  # 1.0 for the terminal "issue" step, which isn't itself a prediction
+
+
+@dataclass(frozen=True)
+class RootCauseChain:
+    issue: Issue
+    steps: list[CausalStep]  # ordered earliest cause first; the issue itself is always last
+    confidence: float  # the weakest non-issue link's confidence; 0.0 if no cause was found at all
+    note: str
+
+
+def _period_plausibly_precedes(period: str, date_str: str, max_months_before: int = MAX_ANTECEDENT_MONTHS) -> bool:
+    """True when `period` ("YYYY-MM") falls in the same month as `date_str`
+    ("YYYY-MM-DD") or up to `max_months_before` months earlier - a cheap,
+    explainable proxy for "could plausibly have caused this," not a claim
+    of proven causation. Returns False for any unparseable input rather
+    than raising - a malformed date on one candidate shouldn't break
+    chain-building for every other issue."""
+    try:
+        period_year, period_month = (int(p) for p in period.split("-", 1))
+        date = datetime.date.fromisoformat(date_str)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    period_ordinal = period_year * 12 + period_month
+    date_ordinal = date.year * 12 + date.month
+    return 0 <= (date_ordinal - period_ordinal) <= max_months_before
+
+
+def build_causal_chain(
+    analysis: RootCauseAnalysis,
+    demand_anomalies: list[DemandAnomaly] | None = None,
+    supplier_delays: list[SupplierDelayAnomaly] | None = None,
+) -> RootCauseChain:
+    """Builds a multi-step causal narrative from an already-computed
+    RootCauseAnalysis, chaining a supplier_delay candidate back to a
+    demand_spike that plausibly preceded it in time (see
+    _period_plausibly_precedes) - e.g. "Demand spike in 2025-06 ->
+    delayed delivery on PO-1003 -> stockout risk for SKU-42." With no
+    temporally-plausible antecedent (or no demand_anomalies supplied at
+    all), the chain is just the single strongest candidate - a fully
+    valid, honest answer on its own, not a failure.
+
+    Takes the already-computed analysis rather than re-deriving one
+    itself, so a caller that already ran analyze_root_cause() (e.g.
+    agents/root_cause_agent.py, which also needs the plain candidate list
+    for its own recommendation text) never pays for, or risks diverging
+    from, a second, redundant computation.
+    """
+    issue = analysis.issue
+    issue_step = CausalStep(
+        cause="issue", subject=issue.subject, detail=f"{issue.subject_kind} {issue.subject} flagged", confidence=1.0
+    )
+
+    if not analysis.candidates:
+        return RootCauseChain(issue=issue, steps=[issue_step], confidence=0.0, note=analysis.note)
+
+    top = analysis.candidates[0]
+    steps = [CausalStep(cause=top.cause, subject=top.evidence_subject, detail=top.detail, confidence=top.confidence)]
+
+    if top.cause == "supplier_delay":
+        delay = next((d for d in (supplier_delays or []) if d.po_id == top.evidence_subject), None)
+        antecedent = None
+        if delay is not None:
+            candidates = [
+                a
+                for a in (demand_anomalies or [])
+                if a.direction == "spike" and _period_plausibly_precedes(a.period, delay.expected_date)
+            ]
+            antecedent = max(candidates, key=lambda a: _SEVERITY_CONFIDENCE.get(a.severity, 0.0), default=None)
+        if antecedent is not None:
+            steps.insert(
+                0,
+                CausalStep(
+                    cause="demand_spike",
+                    subject=antecedent.period,
+                    detail=f"demand spike in {antecedent.period} ({antecedent.detail}) likely strained supply and contributed to the delay",
+                    confidence=_SEVERITY_CONFIDENCE.get(antecedent.severity, 0.0),
+                ),
+            )
+
+    steps.append(issue_step)
+    chain_confidence = min(s.confidence for s in steps[:-1])
+    note = f"{len(steps) - 1}-step causal chain" if len(steps) > 2 else analysis.note
+    return RootCauseChain(issue=issue, steps=steps, confidence=chain_confidence, note=note)
+
+
+def describe_chain(chain: RootCauseChain) -> str:
+    """Renders a RootCauseChain as one arrow-joined line, e.g.
+    "Demand ↑ (2025-06) -> Supplier delay ↑ (PO-1003) -> Stockout risk ↑ (SKU-42)"
+    - the exact narrative shape the product spec's root-cause example asks for.
+    """
+    labels = [f"{_STEP_ARROW_LABEL.get(step.cause, step.cause)} ({step.subject})" for step in chain.steps[:-1]]
+    issue = chain.issue
+    issue_label = "Stockout risk" if issue.subject_kind == "sku" else f"{issue.subject_kind.capitalize()} risk"
+    labels.append(f"{issue_label} ↑ ({issue.subject})")
+    return " → ".join(labels)

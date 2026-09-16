@@ -76,9 +76,26 @@ def test_run_persists_an_audit_record_and_is_idempotent_per_check_id(tmp_path):
     )
 
     records = store.records_for_check("check-agent-1")
-    assert len(records) == 1
-    assert records[0].dimension == "completeness"
-    assert records[0].outcome == "success"
+    # One record per dimension (completeness + validity, since this
+    # agent's own DEFAULT_NUMERIC_FIELDS is non-empty) - idempotent means
+    # re-running with the same check_id doesn't duplicate either one, not
+    # that only one dimension gets recorded.
+    assert {r.dimension for r in records} == {"completeness", "validity"}
+    assert len(records) == 2
+    assert all(r.outcome == "success" for r in records)
+
+
+def test_run_scores_validity_off_transportation_cost_by_default(tmp_path):
+    store = QualityAuditStore(tmp_path / "audit.jsonl")
+    agent = DataQualityMonitoringAgent(store)
+    rows = [_row(po_id="PO-1", transportation_cost=1200.0), _row(po_id="PO-2", transportation_cost="not a number")]
+
+    response = agent.run(AgentQuery(text="check data quality", context={"delivery_rows": rows, "check_id": "check-1"}))
+
+    assert response.status == "ok"
+    validity_record = next(r for r in store.records_for_check("check-1") if r.dimension == "validity")
+    assert validity_record.checked_rows == 2
+    assert validity_record.issue_rows == 1
 
 
 def test_run_returns_error_response_for_an_unexpected_crash(tmp_path):
