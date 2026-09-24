@@ -4,7 +4,7 @@ from agents.contracts import AgentFinding
 from dashboard.approval_store import ApprovalRecord
 from dashboard.data_freshness import DataFreshnessEntry
 from dashboard.metrics import DashboardMetric, DashboardSnapshot
-from dashboard.render import GLOSSARY, render_answer_lines, render_dashboard_html
+from dashboard.render import GLOSSARY, _directional_value_color, render_answer_lines, render_dashboard_html
 from local_apps import theme
 
 
@@ -109,7 +109,9 @@ def test_renders_an_ok_tile_with_headline_confidence_and_findings():
     # "risk score" is a GLOSSARY term (2026-09-12) - wrapped in its own
     # tooltip span rather than appearing as plain contiguous text.
     assert '<span class="term" data-tooltip="A single 0-100 score' in html
-    assert '<span class="hl-value">65/100</span>' in html
+    # 65 >= 60 -> "danger" per _directional_value_color's negative-direction
+    # band (2026-09-22), mirroring risk_score.py's own severity threshold.
+    assert '<span class="hl-value" style="color:var(--danger)">65/100</span>' in html
     assert "confidence</span>: 80%" in html
     assert "2 high finding" in html
     assert "high</span>" in html or ">high<" in html
@@ -353,6 +355,85 @@ def test_show_details_headline_highlighting_does_not_reintroduce_markup():
 
     assert "<script>alert" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_directional_value_color_negative_direction_matches_risk_score_pys_own_thresholds():
+    # Mirrors risk_detection/risk_score.py's own _SCORE_SEVERITY_THRESHOLDS
+    # (60/35/10) so a colored number never disagrees with what that same
+    # score's own severity classification would say elsewhere in this app.
+    assert _directional_value_color(60, "negative") == "var(--danger)"
+    assert _directional_value_color(59.9, "negative") == "var(--warning-strong)"
+    assert _directional_value_color(35, "negative") == "var(--warning-strong)"
+    assert _directional_value_color(34.9, "negative") == "var(--warning)"
+    assert _directional_value_color(10, "negative") == "var(--warning)"
+    assert _directional_value_color(9.9, "negative") == "var(--neutral)"
+    assert _directional_value_color(0, "negative") == "var(--neutral)"
+
+
+def test_directional_value_color_positive_direction_matches_learn_pages_meter_band():
+    # Mirrors learn/serve_learn.py's own _meter_band thresholds (70/40) -
+    # confidence/on-time-rate: higher is better, unlike risk score/stockout
+    # probability above.
+    assert _directional_value_color(70, "positive") == "var(--success)"
+    assert _directional_value_color(69.9, "positive") == "var(--warning)"
+    assert _directional_value_color(40, "positive") == "var(--warning)"
+    assert _directional_value_color(39.9, "positive") == "var(--danger)"
+    assert _directional_value_color(0, "positive") == "var(--danger)"
+
+
+def test_show_details_colors_confidence_by_its_own_value_not_a_flat_blue():
+    # A user asked for "different colors according to the risk value and
+    # confidence score" - confidence is written as a 0-1 decimal (see
+    # agents/stockout_risk_agent.py's "confidence {a.confidence:.2f}") and
+    # is scaled to 0-100 before banding.
+    strong = DashboardMetric(
+        metric_id="a", label="A", status="ok", source_agent="a", headline="finding (confidence 0.85)"
+    )
+    weak = DashboardMetric(
+        metric_id="b", label="B", status="ok", source_agent="b", headline="finding (confidence 0.20)"
+    )
+
+    strong_html = render_dashboard_html(_snapshot(metrics=[strong]))
+    weak_html = render_dashboard_html(_snapshot(metrics=[weak]))
+
+    assert '<span class="hl-value" style="color:var(--success)">0.85</span>' in strong_html
+    assert '<span class="hl-value" style="color:var(--danger)">0.20</span>' in weak_html
+
+
+def test_show_details_colors_risk_score_and_stockout_probability_by_their_own_value():
+    metric = DashboardMetric(
+        metric_id="a", label="A", status="ok", source_agent="a",
+        headline="risk score 72/100 (critical); stockout probability 5%",
+    )
+
+    html = render_dashboard_html(_snapshot(metrics=[metric]))
+
+    assert '<span class="hl-value" style="color:var(--danger)">72/100</span>' in html
+    assert '<span class="hl-value" style="color:var(--neutral)">5%</span>' in html
+
+
+def test_show_details_leaves_unrelated_numbers_at_the_flat_default_color():
+    # Only confidence/risk score/stockout probability are value-colored -
+    # every other number (a dollar amount, a plain count) keeps the same
+    # flat .hl-value treatment it always had.
+    metric = DashboardMetric(
+        metric_id="a", label="A", status="ok", source_agent="a", headline="12 units, revenue at risk $600.00"
+    )
+
+    html = render_dashboard_html(_snapshot(metrics=[metric]))
+
+    assert '<span class="hl-value">12</span>' in html
+    assert '<span class="hl-value">$600.00</span>' in html
+
+
+def test_render_answer_lines_colors_risk_score_and_confidence_for_the_ai_assistant_too():
+    # render_answer_lines() is the exact function chat_interface/serve_chat_ui.py
+    # calls for its own chat answers - proves the AI Assistant gets the same
+    # value-colored treatment as Show Details, not a second copy that drifted.
+    html = render_answer_lines("risk score 8/100 (low); confidence 0.9")
+
+    assert '<span class="hl-value" style="color:var(--neutral)">8/100</span>' in html
+    assert '<span class="hl-value" style="color:var(--success)">0.9</span>' in html
 
 
 def test_renders_no_charts_sections_when_nothing_qualifies():
@@ -607,4 +688,8 @@ def test_render_answer_lines_produces_the_same_list_and_glossary_treatment():
     assert '<ul class="tile-headline">' in html
     assert html.count("<li class=\"headline-line\">") == 2
     assert 'class="term" data-tooltip="A single 0-100 score' in html
-    assert '<span class="hl-value">65/100</span>' in html
+    # 65 -> "danger" (>=60), 0.8 confidence -> "success" (>=70 once scaled
+    # to 0-100) - see test_directional_value_color_bands_* below for the
+    # thresholds themselves.
+    assert '<span class="hl-value" style="color:var(--danger)">65/100</span>' in html
+    assert '<span class="hl-value" style="color:var(--success)">0.8</span>' in html

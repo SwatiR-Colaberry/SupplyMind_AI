@@ -166,6 +166,20 @@ def test_get_root_page_draws_a_risk_score_meter_instead_of_just_the_number(serve
     assert "html += riskMeterSvg(a.risk_score, a.risk_level);" in text
 
 
+def test_get_root_page_colors_risk_score_and_stockout_probability_by_risk_level(server):
+    # A user asked for "different colors according to the risk value" on
+    # this page too, not just Live Data/AI Assistant - reuses the same
+    # _RISK_METER_COLORS map the risk meter/badge above the stat list
+    # already use, rather than a second, independent color scheme.
+    status, body = _get(server, "/")
+    text = body.decode("utf-8")
+
+    assert status == 200
+    assert "const riskValueColor = _RISK_METER_COLORS[a.risk_level] || 'var(--brand)';" in text
+    assert "<span class=\"hl-value\" style=\"color:' + riskValueColor + '\">' + Math.round(a.stockout_probability * 100)" in text
+    assert "<span class=\"hl-value\" style=\"color:' + riskValueColor + '\">' + a.risk_score.toFixed(1)" in text
+
+
 def test_get_root_page_has_a_reset_button_that_clears_the_form_and_results(server):
     # Added 2026-09-12 (fourth report) after a user asked for a way to
     # "remove everything and it will help in entering new data" - a Reset
@@ -219,6 +233,33 @@ def test_get_root_page_explains_risk_score_with_a_tooltip(server):
 
     assert status == 200
     assert b'class="term" data-tooltip="A single 0-100 score' in body
+
+
+def test_glossary_tooltips_shared_with_dashboard_render_stay_word_for_word_in_sync(server):
+    # Regression (2026-09-22): this page's own JS is a standalone,
+    # client-rendered page with no runtime access to dashboard.render's
+    # Python GLOSSARY dict, so its 3 shared terms ("risk score",
+    # "stockout probability", "revenue at risk") are a hand-kept-in-sync
+    # copy - an acknowledged tradeoff, but not one that should mean silent
+    # drift. A UI-rules audit found "risk score" and "revenue at risk" had
+    # each drifted to different wording than the Python source over time.
+    # Checks every term this page duplicates against the real GLOSSARY
+    # dict directly, not a hardcoded copy of the text, so a future GLOSSARY
+    # edit that isn't mirrored here fails loudly instead of drifting again.
+    from dashboard.render import GLOSSARY
+
+    status, body = _get(server, "/")
+    text = body.decode("utf-8")
+
+    assert status == 200
+    for term in ("risk score", "stockout probability", "revenue at risk"):
+        # This page's own JS source (pre-execution, which is what a raw GET
+        # returns) needs an apostrophe escaped as \' inside its single-quoted
+        # JS string literal - a real browser unescapes that back to a plain
+        # apostrophe once the script runs, so this is a source-level, not a
+        # rendered-DOM-level, comparison.
+        expected = GLOSSARY[term].replace("'", "\\'")
+        assert f'data-tooltip="{expected}"' in text, f"{term!r} tooltip text has drifted from GLOSSARY"
 
 
 def test_get_root_page_js_posts_to_the_standalone_api_path_by_default(server):

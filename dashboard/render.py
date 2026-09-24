@@ -116,6 +116,84 @@ def _condense_headline(text: str) -> str:
 _HEADLINE_VALUE_RE = re.compile(r"(?<![\w#/])(-?\$?\d[\d,]*\.?\d*(?:[-/]\d+)*%?)")
 _HEADLINE_SEVERITY_RE = re.compile(r"\b(critical|high|medium|low)\b", re.IGNORECASE)
 
+# A user asked for "different colors according to the risk value and
+# confidence score," not just one flat .hl-value blue for every number.
+# Each pattern matches a known metric's own established text format
+# (verified against the real f-strings that produce it - see e.g.
+# agents/stockout_risk_agent.py's "confidence {a.confidence:.2f}",
+# risk_detection/risk_score.py's "risk score {score:.0f}/100", and
+# inventory_risk/risk_model.py's "stockout probability {x:.0%}") against
+# the number *after* _wrap_value has already wrapped it in <span
+# class="hl-value">, so this only ever adds a color override to a span
+# that already exists rather than risking a second, nested one.
+_CONFIDENCE_VALUE_RE = re.compile(
+    r'(confidence\s+)<span class="hl-value">(-?\d+(?:\.\d+)?)</span>', re.IGNORECASE
+)
+_RISK_SCORE_VALUE_RE = re.compile(
+    r'(risk score\s+)<span class="hl-value">(-?\d+(?:\.\d+)?)(/100)?</span>', re.IGNORECASE
+)
+_STOCKOUT_PROBABILITY_VALUE_RE = re.compile(
+    r'(stockout probability\s+)<span class="hl-value">(-?\d+(?:\.\d+)?%)</span>', re.IGNORECASE
+)
+
+
+def _directional_value_color(value: float, direction: str) -> str:
+    """Maps a 0-100-scale value to a severity-consistent color token, direction-aware.
+
+    "negative" (higher is worse - risk score, stockout probability) reuses
+    risk_detection/risk_score.py's own _SCORE_SEVERITY_THRESHOLDS (60/35/10)
+    so a colored number always agrees with what that same score's own
+    severity classification would say elsewhere in this app - not a
+    second, potentially-disagreeing cutoff invented here. "positive"
+    (higher is better - confidence, on-time rate) mirrors
+    learn/serve_learn.py's own _meter_band thresholds (70/40) for the same
+    reason. Both are already-shipped, already-tested banding schemes.
+    """
+    if direction == "positive":
+        if value >= 70:
+            return "var(--success)"
+        if value >= 40:
+            return "var(--warning)"
+        return "var(--danger)"
+    if value >= 60:
+        return "var(--danger)"
+    if value >= 35:
+        return "var(--warning-strong)"
+    if value >= 10:
+        return "var(--warning)"
+    return "var(--neutral)"
+
+
+def _apply_directional_value_colors(highlighted: str) -> str:
+    """Overrides .hl-value's flat default color for confidence/risk score/
+    stockout probability numbers with one chosen by the value itself - see
+    _directional_value_color. Runs after the generic value-wrap pass and
+    before severity-word coloring, so a plain "confidence"/"risk score"/
+    "stockout probability" label is still present for _wrap_glossary_terms
+    to tooltip-tag afterward."""
+
+    def _confidence_sub(match: re.Match) -> str:
+        label, raw = match.group(1), match.group(2)
+        confidence = float(raw)
+        pct = confidence * 100 if confidence <= 1 else confidence
+        color = _directional_value_color(pct, "positive")
+        return f'{label}<span class="hl-value" style="color:{color}">{raw}</span>'
+
+    def _risk_score_sub(match: re.Match) -> str:
+        label, raw, suffix = match.group(1), match.group(2), match.group(3) or ""
+        color = _directional_value_color(float(raw), "negative")
+        return f'{label}<span class="hl-value" style="color:{color}">{raw}{suffix}</span>'
+
+    def _stockout_probability_sub(match: re.Match) -> str:
+        label, raw = match.group(1), match.group(2)
+        color = _directional_value_color(float(raw.rstrip("%")), "negative")
+        return f'{label}<span class="hl-value" style="color:{color}">{raw}</span>'
+
+    highlighted = _CONFIDENCE_VALUE_RE.sub(_confidence_sub, highlighted)
+    highlighted = _RISK_SCORE_VALUE_RE.sub(_risk_score_sub, highlighted)
+    highlighted = _STOCKOUT_PROBABILITY_VALUE_RE.sub(_stockout_probability_sub, highlighted)
+    return highlighted
+
 # A user first asked for "confidence"/"risk score" to carry a plain-
 # language tooltip (added to their 3 fixed UI locations only); a follow-up
 # said other jargon in this same free-form agent prose - "z-score",
@@ -197,6 +275,7 @@ def _highlight_headline_segment(escaped_segment: str) -> str:
     values that matter - and get a plain-language explanation of the
     technical terms - out of a line of prose without reading every word."""
     highlighted = _HEADLINE_VALUE_RE.sub(_wrap_value, escaped_segment)
+    highlighted = _apply_directional_value_colors(highlighted)
 
     def _color_severity(match: re.Match) -> str:
         word = match.group(1)
@@ -667,13 +746,13 @@ def render_dashboard_html(
     color: white; font-size: 12px; font-weight: 650; padding: 2px 9px; border-radius: 100px;
     text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
   }}
-  /* .tile-headline/.headline-line now live in local_apps/theme.py's
-     TOKENS_CSS - moved there (2026-09-12) so chat_interface/serve_chat_ui.py
+  /* .tile-headline/.headline-line/.hl-value/.hl-severity all live in
+     local_apps/theme.py's TOKENS_CSS - moved there (2026-09-12 for the
+     first two, 2026-09-22 for the color rules, once it turned out only
+     half the pair had actually moved) so chat_interface/serve_chat_ui.py
      can render its own chat answers with render_answer_lines() (this same
-     module) and get identical list styling, instead of duplicating these
-     2 rules into a 3rd screen's <style> block by hand. */
-  .hl-value {{ color: var(--brand); font-weight: 650; }}
-  .hl-severity {{ font-weight: 650; }}
+     module) and get identical list *and* color styling, instead of
+     duplicating these rules into a 3rd screen's <style> block by hand. */
   .tile-plain {{ font-size: 15px; color: var(--ink); margin-bottom: 10px; font-weight: 550; }}
   .tile-detail {{ margin-top: 4px; border-top: 1px solid var(--border-soft); padding-top: 8px; }}
   .tile-detail summary {{ cursor: pointer; font-size: 13px; color: var(--brand); font-weight: 600; }}

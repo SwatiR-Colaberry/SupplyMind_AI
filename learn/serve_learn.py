@@ -300,6 +300,7 @@ _PAGE_TEMPLATE = Template("""<!doctype html>
 $google_font_links
 <style>
 $theme_tokens
+  .page { max-width: 1180px; margin: 0 auto; padding: 32px 32px 56px; }
   .intro {
     background: var(--surface); border-radius: 12px; padding: 18px 22px; margin-bottom: 24px; font-size: 15px;
     line-height: 1.6; color: var(--ink-soft); box-shadow: var(--shadow);

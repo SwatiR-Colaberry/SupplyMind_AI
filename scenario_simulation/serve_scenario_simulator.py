@@ -234,12 +234,21 @@ function renderAssessment(label, a, colClass) {
   let html = '<div class="compare-col ' + colClass + '"><h3>' + label + '</h3>';
   html += riskBadge(a.risk_level);
   html += riskMeterSvg(a.risk_score, a.risk_level);
+  // Risk score/stockout probability are colored by this same assessment's
+  // own risk_level (reusing _RISK_METER_COLORS, the same map the meter
+  // above already uses) rather than a flat blue - a user asked for
+  // "different colors according to the risk value," matching the
+  // dashboard/render.py treatment Show Details and the AI Assistant both
+  // already got (dashboard.render._directional_value_color, Python-side).
+  // .hl-value's base style lives in local_apps/theme.py's TOKENS_CSS,
+  // already loaded on this page.
+  const riskValueColor = _RISK_METER_COLORS[a.risk_level] || 'var(--brand)';
   html += '<ul class="stat-list">';
   html += '<li class="stat-line">' + fmtDays(a.days_of_supply) + ' of supply</li>';
-  html += '<li class="stat-line"><span class="term" data-tooltip="The estimated chance this item runs out of stock before the next shipment arrives.">Stockout probability</span>: ' + Math.round(a.stockout_probability * 100) + '%</li>';
-  html += '<li class="stat-line"><span class="term" data-tooltip="A single 0-100 score combining how likely a stockout is and how severe it would be. Higher means more urgent.">Risk score</span>: ' + a.risk_score.toFixed(1) + '/100</li>';
+  html += '<li class="stat-line"><span class="term" data-tooltip="The estimated chance this item runs out of stock before the next shipment arrives.">Stockout probability</span>: <span class="hl-value" style="color:' + riskValueColor + '">' + Math.round(a.stockout_probability * 100) + '%</span></li>';
+  html += '<li class="stat-line"><span class="term" data-tooltip="A single 0-100 score combining how likely a problem is and how severe it would be. Higher means more urgent.">Risk score</span>: <span class="hl-value" style="color:' + riskValueColor + '">' + a.risk_score.toFixed(1) + '/100</span></li>';
   if (a.revenue_at_risk) {
-    html += '<li class="stat-line"><span class="term" data-tooltip="The estimated sales value that could be lost if this risk goes unaddressed.">Revenue at risk</span>: $$' + a.revenue_at_risk.toFixed(2) + '</li>';
+    html += '<li class="stat-line"><span class="term" data-tooltip="The estimated sales value that could be lost if this risk isn\\'t addressed.">Revenue at risk</span>: $$' + a.revenue_at_risk.toFixed(2) + '</li>';
   }
   html += '</ul>';
   html += '</div>';

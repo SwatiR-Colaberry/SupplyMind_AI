@@ -86,6 +86,20 @@ def test_get_unknown_path_is_404(server):
     assert status == 404
 
 
+def test_get_root_page_is_width_capped_like_every_sibling_screen(server):
+    # Regression (2026-09-22): unlike data_console/chat_interface/
+    # scenario_simulation (all `.page { max-width: 1180px }`), this page's
+    # own <style> block never defined a `.page` rule at all, so its content
+    # stretched edge-to-edge across the full browser width - a user
+    # reported "Other pages are restricted but this page is taking the
+    # whole space." Matched to the same 1180px every sibling screen uses.
+    status, body = _get(server, "/")
+    text = body.decode("utf-8")
+
+    assert status == 200
+    assert ".page { max-width: 1180px" in text
+
+
 def test_get_root_page_no_svg_contains_a_text_element():
     # Regression (2026-09-13): every visual used to draw its own caption
     # as an SVG <text> element sized in the 220-unit viewBox's own

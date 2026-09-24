@@ -240,6 +240,22 @@ TOKENS_CSS = """
   .tile-headline { font-size: 14px; color: var(--ink-soft); margin: 0 0 6px; line-height: 1.5; list-style: disc; padding-left: 20px; }
   .headline-line { margin-bottom: 4px; }
   .headline-line:last-child { margin-bottom: 0; }
+  /* .hl-value/.hl-severity belong with .tile-headline/.headline-line above -
+     dashboard/render.py's own render_answer_lines()/_render_headline_lines()
+     wrap numbers and severity words in these classes, but a 2026-09-12 move
+     only brought the list-structure rules here and left the actual color
+     rules behind in dashboard/render.py's own <style> block. Every screen
+     that renders that markup via TOKENS_CSS (chat_interface) but doesn't
+     also load dashboard/render.py's own <style> got numbers/severity words
+     with no color or weight at all - a user reported "the color ... in Show
+     Details" wasn't showing up on the AI Assistant page. Moved here so
+     every consumer of render_answer_lines()/_render_headline_lines() gets
+     the same styling automatically, single source of truth like the rest
+     of this file. .hl-value's base color is a plain default (var(--brand))
+     - dashboard/render.py's own _directional_value_color() overrides it
+     inline, per-value, for confidence/risk score/stockout probability. */
+  .hl-value { color: var(--brand); font-weight: 650; }
+  .hl-severity { font-weight: 650; }
   .page-header {
     position: relative; display: flex; align-items: center; gap: 16px;
     padding: 22px 26px 20px; margin-bottom: 22px; border-radius: 16px; border: 1px solid var(--border-soft);

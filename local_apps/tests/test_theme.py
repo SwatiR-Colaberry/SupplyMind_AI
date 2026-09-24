@@ -220,3 +220,15 @@ def test_onboarding_overlay_is_hidden_by_default_in_css():
     assert ".onboarding-overlay {" in theme.TOKENS_CSS
     assert "display: none;" in theme.TOKENS_CSS
     assert ".onboarding-overlay.is-visible { display: flex; }" in theme.TOKENS_CSS
+
+
+def test_tokens_css_defines_hl_value_and_hl_severity_color_rules():
+    # Regression (2026-09-22): a 2026-09-12 move only brought .tile-headline/
+    # .headline-line here, leaving the actual .hl-value/.hl-severity color
+    # rules behind in dashboard/render.py's own <style> block - any screen
+    # rendering dashboard.render.render_answer_lines() via TOKENS_CSS alone
+    # (chat_interface) got list structure but no color at all. A user
+    # reported "the color ... in Show Details" wasn't on the AI Assistant
+    # page. Both rules now live here, single source of truth.
+    assert '.hl-value { color: var(--brand); font-weight: 650; }' in theme.TOKENS_CSS
+    assert '.hl-severity { font-weight: 650; }' in theme.TOKENS_CSS
