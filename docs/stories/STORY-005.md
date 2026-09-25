@@ -30,8 +30,8 @@ the same criteria out of `.colaberry/progress.json`, which Claude Code keeps in
 step (see the managed block in CLAUDE.md). Ticking something you have not
 actually met only misleads you.
 
-- [x] Given supply chain data, when the system analyzes it, then it should detect anomalies and risks.
-- [x] Given an anomaly detection failure, when the system identifies it, then it should log the error and notify the user.
-- [x] Trust: The system logs all detected anomalies and risks with timestamps and severity levels.
+- [ ] Given supply chain data, when the system analyzes it, then it should detect anomalies and risks.
+- [ ] Given an anomaly detection failure, when the system identifies it, then it should log the error and notify the user.
+- [ ] Trust: The system logs all detected anomalies and risks with timestamps and severity levels.
 
 When every box above is ticked, stop and show the demo.

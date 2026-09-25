@@ -27,8 +27,8 @@ the same criteria out of `.colaberry/progress.json`, which Claude Code keeps in
 step (see the managed block in CLAUDE.md). Ticking something you have not
 actually met only misleads you.
 
-- [x] Given raw data inputs, When processed through the model, Then the system provides observations
-- [x] Given observations, When analyzed, Then the system provides understanding insights
-- [x] Trust: Given model execution, Then an audit trail of model stages is maintained
+- [ ] Given raw data inputs, When processed through the model, Then the system provides observations
+- [ ] Given observations, When analyzed, Then the system provides understanding insights
+- [ ] Trust: Given model execution, Then an audit trail of model stages is maintained
 
 When every box above is ticked, stop and show the demo.

@@ -27,8 +27,8 @@ the same criteria out of `.colaberry/progress.json`, which Claude Code keeps in
 step (see the managed block in CLAUDE.md). Ticking something you have not
 actually met only misleads you.
 
-- [x] Given shipment data, When analyzed, Then the system identifies delay patterns
-- [x] Given shipment delays, When costs are calculated, Then the system provides cost analysis
-- [x] Trust: Given shipment analysis, Then an audit trail of delay analysis is maintained
+- [ ] Given shipment data, When analyzed, Then the system identifies delay patterns
+- [ ] Given shipment delays, When costs are calculated, Then the system provides cost analysis
+- [ ] Trust: Given shipment analysis, Then an audit trail of delay analysis is maintained
 
 When every box above is ticked, stop and show the demo.

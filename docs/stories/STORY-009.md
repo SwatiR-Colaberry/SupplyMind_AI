@@ -29,8 +29,8 @@ the same criteria out of `.colaberry/progress.json`, which Claude Code keeps in
 step (see the managed block in CLAUDE.md). Ticking something you have not
 actually met only misleads you.
 
-- [x] Given supply chain data, when the system processes it, then it should display key metrics on the dashboard.
-- [x] Given data processing errors, when the system updates the dashboard, then it should notify the user of issues.
-- [x] Trust: The system logs all dashboard updates with timestamps and data sources.
+- [ ] Given supply chain data, when the system processes it, then it should display key metrics on the dashboard.
+- [ ] Given data processing errors, when the system updates the dashboard, then it should notify the user of issues.
+- [ ] Trust: The system logs all dashboard updates with timestamps and data sources.
 
 When every box above is ticked, stop and show the demo.

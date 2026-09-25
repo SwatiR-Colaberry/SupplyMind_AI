@@ -9,7 +9,7 @@
     "stories_not_started": 0,
     "criteria_total": 50,
     "criteria_passed": 50,
-    "points_awarded": 800
+    "points_awarded": 986
   },
   "stories": [
     {
@@ -34,7 +34,7 @@
           "passed": true
         },
         {
-          "text": "Trust \u2014 no tab shows a number, a connection or a result the project has not actually produced.",
+          "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.",
           "passed": true
         }
       ],
@@ -49,8 +49,8 @@
         "verified_at": "2026-08-19T12:11:21.852Z",
         "commit_sha": "390ee92ee1f204901babef24609c9f154afada79",
         "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/390ee92ee1f204901babef24609c9f154afada79",
-        "commit_at": "2026-08-19T10:33:19Z",
-        "points_awarded": 50,
+        "commit_at": "2026-08-19T12:11:14Z",
+        "points_awarded": 112,
         "outstanding": []
       }
     },
@@ -84,7 +84,7 @@
         "commit_sha": "0d7eb66b3718d519d064ad71d40ddc0eeed2854f",
         "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/0d7eb66b3718d519d064ad71d40ddc0eeed2854f",
         "commit_at": "2026-08-20T09:54:40Z",
-        "points_awarded": 50,
+        "points_awarded": 112,
         "outstanding": []
       }
     },
@@ -117,8 +117,8 @@
         "verified_at": "2026-08-20T12:48:23.531Z",
         "commit_sha": "a7415a126f0c2d775b2bd191d22c368606517e7b",
         "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/a7415a126f0c2d775b2bd191d22c368606517e7b",
-        "commit_at": "2026-08-20T12:43:26Z",
-        "points_awarded": 50,
+        "commit_at": "2026-08-20T12:48:16Z",
+        "points_awarded": 112,
         "outstanding": []
       }
     },
@@ -216,7 +216,7 @@
         "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": "2026-08-25T16:57:49.000Z",
+        "verified_at": "2026-08-25T12:08:14.856Z",
         "commit_sha": "74346f0935520ec55022f19eb29b666ea4c2fd28",
         "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/74346f0935520ec55022f19eb29b666ea4c2fd28",
         "commit_at": "2026-08-25T12:00:42Z",
@@ -250,10 +250,10 @@
         "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": "2026-09-01T09:48:50.000Z",
-        "commit_sha": "833cab5e8c3caf53c8fa7df3454c71884f8eaaa4",
-        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/833cab5e8c3caf53c8fa7df3454c71884f8eaaa4",
-        "commit_at": "2026-08-26T17:24:22Z",
+        "verified_at": "2026-08-26T17:24:41.433Z",
+        "commit_sha": "dd3ade2963cae14e684c51745d71fdc1f0f702d1",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/dd3ade2963cae14e684c51745d71fdc1f0f702d1",
+        "commit_at": "2026-08-26T14:05:58Z",
         "points_awarded": 50,
         "outstanding": []
       }
@@ -310,7 +310,7 @@
         "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": "2026-09-02T15:33:40.328919+00:00",
+        "verified_at": "2026-09-02T15:35:17.198Z",
         "commit_sha": "f0096b894b3d370721fa6395ceb65a238ceeb123",
         "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/f0096b894b3d370721fa6395ceb65a238ceeb123",
         "commit_at": "2026-09-02T15:33:24Z",
@@ -363,7 +363,7 @@
         "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": "2026-09-03T16:23:30.623856+00:00",
+        "verified_at": "2026-09-03T16:38:28.371Z",
         "commit_sha": "cef76b2a306ad7e94e3aefce7943fc0ab4c39840",
         "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/cef76b2a306ad7e94e3aefce7943fc0ab4c39840",
         "commit_at": "2026-09-03T16:23:18Z",
@@ -397,7 +397,7 @@
         "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": "2026-09-04T16:30:08.554787Z",
+        "verified_at": "2026-09-07T11:07:37.721Z",
         "commit_sha": "c8ba7eca1f25d46ae4abcdb2b68cd3106f53ef20",
         "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/c8ba7eca1f25d46ae4abcdb2b68cd3106f53ef20",
         "commit_at": "2026-09-04T16:29:51Z",
@@ -450,7 +450,7 @@
         "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": "2026-09-07T15:39:21.398406+00:00",
+        "verified_at": "2026-09-07T17:14:04.084Z",
         "commit_sha": "5d344074a0ae064860be708bd6763a968bd50e7b",
         "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/5d344074a0ae064860be708bd6763a968bd50e7b",
         "commit_at": "2026-09-07T15:39:08Z",
@@ -552,10 +552,10 @@
         "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": "2026-09-02T13:01:35.877053Z",
-        "commit_sha": "d20731b7c7f744dbec95225585e84119e3a8554a",
-        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/d20731b7c7f744dbec95225585e84119e3a8554a",
-        "commit_at": "2026-09-01T12:29:41Z",
+        "verified_at": "2026-09-02T13:04:38.924Z",
+        "commit_sha": "3e0b9c58d75cc3c77d0df3dd5528bb24b0c9f148",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/3e0b9c58d75cc3c77d0df3dd5528bb24b0c9f148",
+        "commit_at": "2026-09-01T11:57:00Z",
         "points_awarded": 50,
         "outstanding": []
       }
@@ -605,7 +605,7 @@
         "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": "2026-09-03T17:08:09.177703+00:00",
+        "verified_at": "2026-09-03T17:11:37.158Z",
         "commit_sha": "498f6e2913e65eabe286a8100095eecbe393e88c",
         "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/498f6e2913e65eabe286a8100095eecbe393e88c",
         "commit_at": "2026-09-03T17:07:56Z",
@@ -659,10 +659,10 @@
         "state": "verified",
         "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": "2026-09-04T12:17:37.586850+00:00",
-        "commit_sha": "335ce4754b1293059609eea89656c03fedce1de1",
-        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/335ce4754b1293059609eea89656c03fedce1de1",
-        "commit_at": "2026-09-04T12:17:26Z",
+        "verified_at": "2026-09-04T12:24:49.795Z",
+        "commit_sha": "5d8b0e5e5910f4a20852974d119a4f662bbeaa25",
+        "commit_url": "https://github.com/SwatiR-Colaberry/SupplyMind_AI/commit/5d8b0e5e5910f4a20852974d119a4f662bbeaa25",
+        "commit_at": "2026-09-04T11:36:28Z",
         "points_awarded": 50,
         "outstanding": []
       }

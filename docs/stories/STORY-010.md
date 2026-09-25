@@ -29,8 +29,8 @@ the same criteria out of `.colaberry/progress.json`, which Claude Code keeps in
 step (see the managed block in CLAUDE.md). Ticking something you have not
 actually met only misleads you.
 
-- [x] Given a user query, when the system processes it, then it should provide a relevant response via chat.
-- [x] Given an unsupported query, when the system processes it, then it should notify the user of limitations.
-- [x] Trust: The system logs all chat interactions with timestamps and query details.
+- [ ] Given a user query, when the system processes it, then it should provide a relevant response via chat.
+- [ ] Given an unsupported query, when the system processes it, then it should notify the user of limitations.
+- [ ] Trust: The system logs all chat interactions with timestamps and query details.
 
 When every box above is ticked, stop and show the demo.

@@ -29,8 +29,8 @@ the same criteria out of `.colaberry/progress.json`, which Claude Code keeps in
 step (see the managed block in CLAUDE.md). Ticking something you have not
 actually met only misleads you.
 
-- [x] Given a supply chain issue, when the system analyzes it, then it should provide a root cause analysis.
-- [x] Given insufficient data for analysis, when the system attempts root cause analysis, then it should notify the user of limitations.
-- [x] Trust: The system logs all root cause analyses with timestamps and confidence levels.
+- [ ] Given a supply chain issue, when the system analyzes it, then it should provide a root cause analysis.
+- [ ] Given insufficient data for analysis, when the system attempts root cause analysis, then it should notify the user of limitations.
+- [ ] Trust: The system logs all root cause analyses with timestamps and confidence levels.
 
 When every box above is ticked, stop and show the demo.

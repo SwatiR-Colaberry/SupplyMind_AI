@@ -27,8 +27,8 @@ the same criteria out of `.colaberry/progress.json`, which Claude Code keeps in
 step (see the managed block in CLAUDE.md). Ticking something you have not
 actually met only misleads you.
 
-- [x] Given supplier data, When evaluated, Then the system generates a Supplier Risk Score
-- [x] Given unreliable supplier data, When processed, Then the system flags the supplier for review
-- [x] Trust: Given supplier evaluation, Then an audit trail of the evaluation process is recorded
+- [ ] Given supplier data, When evaluated, Then the system generates a Supplier Risk Score
+- [ ] Given unreliable supplier data, When processed, Then the system flags the supplier for review
+- [ ] Trust: Given supplier evaluation, Then an audit trail of the evaluation process is recorded
 
 When every box above is ticked, stop and show the demo.
